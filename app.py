@@ -40,7 +40,7 @@ def _is_audio_streaming_history_json(name: str) -> bool:
     # strongly prefer the explicit audio files
     if "streaming_history_audio" in n:
         return True
-   
+
     if "streaming_history" in n and "video" not in n:
         return True
     return False
@@ -89,7 +89,6 @@ def load_spotify_from_zip(zip_bytes: bytes) -> pd.DataFrame:
         "master_metadata_album_artist_name": "artist",
         "master_metadata_album_album_name": "album",
         # (optional fields that may exist)
-        "platform": "platform",
         "conn_country": "conn_country",
     }
     df = df.rename(columns=rename_map)
@@ -409,10 +408,6 @@ with tab_sessions:
 
         st.plotly_chart(px.scatter(sessions, x="plays", y="minutes", title="Plays vs minutes per session"), use_container_width=True)
 
-        if "platform" in df.columns:
-            by_platform = df.groupby("platform", as_index=False).size().rename(columns={"size": "plays"})
-            st.plotly_chart(px.pie(by_platform, names="platform", values="plays", title="Platform mix (plays)"), use_container_width=True)
-
 
 # -----------------------------
 # Export section
@@ -444,3 +439,4 @@ st.download_button(
     file_name="wrapped_exports.zip",
     mime="application/zip",
 )
+
