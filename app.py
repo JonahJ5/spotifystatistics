@@ -14,7 +14,7 @@ import plotly.express as px
 # -----------------------------
 st.set_page_config(page_title="Spotify Wrapped (Upload ZIP)", layout="wide")
 st.title("Spotify Wrapped-style Dashboard")
-st.caption("Upload the ZIP file Spotify gives you (Extended Streaming History). Nothing is stored on the server.")
+st.caption("Upload the ZIP file Spotify gives you (my_spotify_data.zip).")
 
 
 # -----------------------------
@@ -34,10 +34,6 @@ def is_safe_path(filename: str) -> bool:
 
 
 def _is_audio_streaming_history_json(name: str) -> bool:
-    """
-    Spotify exports can include lots of JSONs. We only want the audio streaming history,
-    and we explicitly want to ignore video files.
-    """
     n = name.lower()
     if not n.endswith(".json"):
         return False
