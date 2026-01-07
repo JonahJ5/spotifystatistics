@@ -46,6 +46,11 @@ def _is_audio_streaming_history_json(name: str) -> bool:
     return False
 
 
+def _auto_hbar_height(n_rows: int, min_h: int = 450, per_row: int = 26, pad: int = 140, max_h: int = 2200) -> int:
+    """Make horizontal bar charts tall enough so labels don't get cut off when Top N grows."""
+    return min(max_h, max(min_h, pad + per_row * max(1, n_rows)))
+
+
 def load_spotify_from_zip(zip_bytes: bytes) -> pd.DataFrame:
     """Parse Spotify streaming history JSON files from a ZIP into a DataFrame."""
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
@@ -281,44 +286,68 @@ with tab_rank:
 
     with c1:
         top_artists = safe_group_sum(df, ["artist"], "minutes", topn)
+        plot_df = top_artists.sort_values("minutes", ascending=True)
         fig = px.bar(
-            top_artists, x="minutes", y="artist", orientation="h",
+            plot_df, x="minutes", y="artist", orientation="h",
             title="Top Artists (by minutes)",
             color="artist"
         )
-        fig.update_layout(showlegend=False)
+        fig.update_layout(
+            showlegend=False,
+            height=_auto_hbar_height(len(plot_df)),
+            yaxis=dict(automargin=True),
+            margin=dict(l=260, r=20, t=60, b=20),
+        )
         st.plotly_chart(fig, use_container_width=True)
 
     with c2:
         top_tracks = safe_group_sum(df, ["track", "artist"], "minutes", topn)
+        plot_df = top_tracks.sort_values("minutes", ascending=True)
         fig = px.bar(
-            top_tracks, x="minutes", y="track", orientation="h",
+            plot_df, x="minutes", y="track", orientation="h",
             title="Top Tracks (by minutes)",
             hover_data=["artist"],
             color="track"
         )
-        fig.update_layout(showlegend=False)
+        fig.update_layout(
+            showlegend=False,
+            height=_auto_hbar_height(len(plot_df)),
+            yaxis=dict(automargin=True),
+            margin=dict(l=320, r=20, t=60, b=20),
+        )
         st.plotly_chart(fig, use_container_width=True)
 
     c3, c4 = st.columns(2)
     with c3:
         top_albums = safe_group_sum(df, ["album"], "minutes", topn)
+        plot_df = top_albums.sort_values("minutes", ascending=True)
         fig = px.bar(
-            top_albums, x="minutes", y="album", orientation="h",
+            plot_df, x="minutes", y="album", orientation="h",
             title="Top Albums (by minutes)",
             color="album"
         )
-        fig.update_layout(showlegend=False)
+        fig.update_layout(
+            showlegend=False,
+            height=_auto_hbar_height(len(plot_df)),
+            yaxis=dict(automargin=True),
+            margin=dict(l=320, r=20, t=60, b=20),
+        )
         st.plotly_chart(fig, use_container_width=True)
 
     with c4:
         top_artists_plays = safe_group_count(df, ["artist"], topn, name="plays")
+        plot_df = top_artists_plays.sort_values("plays", ascending=True)
         fig = px.bar(
-            top_artists_plays, x="plays", y="artist", orientation="h",
+            plot_df, x="plays", y="artist", orientation="h",
             title="Top Artists (by play count)",
             color="artist"
         )
-        fig.update_layout(showlegend=False)
+        fig.update_layout(
+            showlegend=False,
+            height=_auto_hbar_height(len(plot_df)),
+            yaxis=dict(automargin=True),
+            margin=dict(l=260, r=20, t=60, b=20),
+        )
         st.plotly_chart(fig, use_container_width=True)
 
     plays_per_track = df.groupby(["track", "artist"], as_index=False).size().rename(columns={"size": "plays"})
@@ -327,28 +356,34 @@ with tab_rank:
         use_container_width=True
     )
 
-    # (4) Artist peak day ranking
-    st.subheader("Artist peak days (max minutes listened in a single day)")
+    # (4) Artist peak day ranking (each artist's single biggest day)
+    st.subheader("Artist peak days (each artist’s biggest single day)")
     daily_artist = df.groupby(["artist", "day"], as_index=False)["minutes"].sum()
 
-    # pick each artist's best day
     idx = daily_artist.groupby("artist")["minutes"].idxmax()
     artist_peaks = daily_artist.loc[idx].copy()
+
+    artist_peaks = artist_peaks.sort_values("minutes", ascending=False).head(topn).copy()
+    artist_peaks["date"] = artist_peaks["day"].dt.date
+    artist_peaks["label"] = artist_peaks["artist"] + " — " + artist_peaks["date"].astype(str)
     artist_peaks["peak_hours"] = artist_peaks["minutes"] / 60.0
-    artist_peaks = artist_peaks.sort_values("minutes", ascending=False).head(topn)
 
-    artist_peaks["label"] = artist_peaks["artist"] + " — " + artist_peaks["day"].dt.strftime("%Y-%m-%d")
-
+    plot_df = artist_peaks.sort_values("minutes", ascending=True)
     fig = px.bar(
-        artist_peaks,
+        plot_df,
         x="minutes",
         y="label",
         orientation="h",
-        title="Top artist-days (each artist's #1 day)",
-        hover_data={"artist": True, "day": True, "minutes": ":.0f", "peak_hours": ":.2f"},
+        title="Top artist-days (each artist’s #1 day)",
+        hover_data={"minutes": ":.0f", "peak_hours": ":.2f"},
         color="artist"
     )
-    fig.update_layout(showlegend=False, yaxis_title="")
+    fig.update_layout(
+        showlegend=False,
+        height=_auto_hbar_height(len(plot_df)),
+        yaxis=dict(automargin=True),
+        margin=dict(l=340, r=20, t=60, b=20),
+    )
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -376,29 +411,36 @@ with tab_time:
 
     with c2:
         by_hour = df.groupby("hour", as_index=False)["minutes"].sum().sort_values("hour")
-        # Keep hour chart simple (colors can get noisy here), but still multi-color:
         fig = px.bar(by_hour, x="hour", y="minutes", title="Minutes by hour of day — UTC", color="hour")
         fig.update_layout(showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
 
-    # (3) Most-listened days: add top artist + their minutes
-    daily_total = df.groupby("day", as_index=False)["minutes"].sum().rename(columns={"minutes": "total_minutes"})
-    daily_artist2 = df.groupby(["day", "artist"], as_index=False)["minutes"].sum().rename(columns={"minutes": "artist_minutes"})
+    # (3) Most-listened days: date-only + top artist + minutes
+    daily_total = (
+        df.groupby("day", as_index=False)["minutes"].sum()
+          .rename(columns={"minutes": "total_minutes"})
+    )
+    daily_artist2 = (
+        df.groupby(["day", "artist"], as_index=False)["minutes"].sum()
+          .rename(columns={"minutes": "top_artist_minutes"})
+    )
 
-    idx2 = daily_artist2.groupby("day")["artist_minutes"].idxmax()
+    idx2 = daily_artist2.groupby("day")["top_artist_minutes"].idxmax()
     daily_top_artist = daily_artist2.loc[idx2].rename(columns={"artist": "top_artist"}).copy()
 
     top_days = (
-        daily_total.merge(daily_top_artist[["day", "top_artist", "artist_minutes"]], on="day", how="left")
+        daily_total.merge(daily_top_artist[["day", "top_artist", "top_artist_minutes"]], on="day", how="left")
         .sort_values("total_minutes", ascending=False)
         .head(25)
+        .copy()
     )
-    top_days["total_hours"] = top_days["total_minutes"] / 60.0
-    top_days["top_artist_hours"] = top_days["artist_minutes"] / 60.0
+    top_days["date"] = top_days["day"].dt.date
+    top_days["total_minutes"] = top_days["total_minutes"].round(1)
+    top_days["top_artist_minutes"] = top_days["top_artist_minutes"].round(1)
 
     st.subheader("Most-listened days (with top artist)")
     st.dataframe(
-        top_days[["day", "total_minutes", "total_hours", "top_artist", "artist_minutes", "top_artist_hours"]],
+        top_days[["date", "total_minutes", "top_artist", "top_artist_minutes"]],
         use_container_width=True
     )
 
@@ -409,8 +451,9 @@ with tab_trends:
     st.plotly_chart(px.line(daily, x="day", y="minutes", title="Daily minutes over time"), use_container_width=True)
 
     monthly = df.groupby("month", as_index=False)["minutes"].sum().sort_values("month")
-    st.plotly_chart(px.bar(monthly, x="month", y="minutes", title="Minutes by month", color="month").update_layout(showlegend=False),
-                    use_container_width=True)
+    fig = px.bar(monthly, x="month", y="minutes", title="Minutes by month", color="month")
+    fig.update_layout(showlegend=False)
+    st.plotly_chart(fig, use_container_width=True)
 
     daily3 = daily.copy()
     daily3["cumulative_minutes"] = daily3["minutes"].cumsum()
@@ -418,12 +461,13 @@ with tab_trends:
 
     top_artist_list = (
         df.groupby("artist", as_index=False)["minutes"].sum()
-        .sort_values("minutes", ascending=False).head(8)["artist"].tolist()
+          .sort_values("minutes", ascending=False)
+          .head(8)["artist"].tolist()
     )
     trend = (
         df[df["artist"].isin(top_artist_list)]
-        .groupby(["month", "artist"], as_index=False)["minutes"].sum()
-        .sort_values("month")
+          .groupby(["month", "artist"], as_index=False)["minutes"].sum()
+          .sort_values("month")
     )
     st.plotly_chart(px.area(trend, x="month", y="minutes", color="artist", title="Top artists over time (monthly)"),
                     use_container_width=True)
@@ -433,13 +477,19 @@ with tab_trends:
 
     first_artist = (
         df.sort_values("played_at")
-        .groupby("artist", as_index=False)
-        .first()[["artist", "played_at"]]
+          .groupby("artist", as_index=False)
+          .first()[["artist", "played_at"]]
     )
     first_artist["month"] = first_artist["played_at"].dt.strftime("%Y-%m")
-    discovery = first_artist.groupby("month", as_index=False).size().rename(columns={"size": "new_artists"}).sort_values("month")
-    st.plotly_chart(px.bar(discovery, x="month", y="new_artists", title="New artists discovered by month", color="month").update_layout(showlegend=False),
-                    use_container_width=True)
+    discovery = (
+        first_artist.groupby("month", as_index=False)
+          .size()
+          .rename(columns={"size": "new_artists"})
+          .sort_values("month")
+    )
+    fig = px.bar(discovery, x="month", y="new_artists", title="New artists discovered by month", color="month")
+    fig.update_layout(showlegend=False)
+    st.plotly_chart(fig, use_container_width=True)
 
 
 # ---- Sessions tab ----
@@ -466,7 +516,13 @@ with tab_sessions:
             )
 
         st.subheader("Longest sessions")
-        st.dataframe(sessions.sort_values("minutes", ascending=False).head(20), use_container_width=True)
+        longest = sessions.sort_values("minutes", ascending=False).head(20).copy()
+        longest["minutes"] = longest["minutes"].round(1)
+        longest["duration_minutes"] = longest["duration_minutes"].round(1)
+        st.dataframe(
+            longest[["session_date", "minutes", "duration_minutes", "plays"]],
+            use_container_width=True
+        )
 
         # (6) Hover shows date + start/end
         fig = px.scatter(
@@ -481,6 +537,7 @@ with tab_sessions:
                 "duration_minutes": ":.1f",
                 "plays": True,
                 "minutes": ":.1f",
+                "session_id": False,
             },
         )
         st.plotly_chart(fig, use_container_width=True)
