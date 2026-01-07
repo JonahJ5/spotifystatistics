@@ -88,7 +88,7 @@ def load_spotify_from_zip(zip_bytes: bytes) -> pd.DataFrame:
         "master_metadata_track_name": "track",
         "master_metadata_album_artist_name": "artist",
         "master_metadata_album_album_name": "album",
-        # optional
+        # (optional fields that may exist)
         "conn_country": "conn_country",
     }
     df = df.rename(columns=rename_map)
@@ -102,10 +102,7 @@ def load_spotify_from_zip(zip_bytes: bytes) -> pd.DataFrame:
     df["played_at"] = pd.to_datetime(df["played_at"], errors="coerce", utc=True)
     df["ms_played"] = pd.to_numeric(df["ms_played"], errors="coerce")
 
-    # Drop anything that is not really a music play:
-    # - must have timestamp
-    # - must have ms_played > 0
-    # - must have non-empty track/artist/album
+    # Keep only real music plays (no missing metadata, ms_played > 0)
     required = ["track", "artist", "album"]
     for c in required:
         df[c] = df[c].astype("string")
@@ -127,7 +124,7 @@ def load_spotify_from_zip(zip_bytes: bytes) -> pd.DataFrame:
     df["date"] = df["played_at"].dt.date
     df["day"] = df["played_at"].dt.floor("D")
     df["month"] = df["played_at"].dt.strftime("%Y-%m")
-    df["year"] = df["played_at"].dt.year
+    df["year"] = df["played_at"].dt.year.astype("int64")
     df["hour"] = df["played_at"].dt.hour
     df["dow"] = df["played_at"].dt.day_name()
 
@@ -226,37 +223,37 @@ if size_mb > MAX_ZIP_MB:
     st.stop()
 
 with st.spinner("Reading ZIP and parsing streaming history…"):
-    df = load_spotify_from_zip(uploaded.read())
+    df_all = load_spotify_from_zip(uploaded.read())
 
-if df.empty:
+if df_all.empty:
     st.error("After filtering, no valid music plays were found (track/artist/album missing or ms_played=0).")
     st.stop()
 
-st.success(f"Loaded {len(df):,} music play events (audio only, metadata required).")
+st.success(f"Loaded {len(df_all):,} music play events (audio only, metadata required).")
 
 
 # -----------------------------
-# Sidebar controls (UPDATED: Year dropdown + All years)
+# Sidebar controls
 # -----------------------------
 with st.sidebar:
     st.header("Controls")
 
     topn = st.slider("Top N", min_value=5, max_value=50, value=DEFAULT_TOPN, step=5)
 
-    # Year dropdown with Select All
-    years = sorted(df["year"].dropna().unique().tolist())
-    year_options = ["All years"] + years
-
+    years = sorted(df_all["year"].dropna().unique().tolist())
+    year_options = ["All years (Select all)"] + [str(y) for y in years]
     selected_year = st.selectbox("Year", options=year_options, index=0)
-
-    if selected_year != "All years":
-        df = df[df["year"] == selected_year].copy()
 
     show_preview = st.checkbox("Show preview table", value=False)
     session_gap = st.slider("Session gap (minutes)", 10, 120, 30, 5)
 
+# Apply year filter
+df = df_all.copy()
+if selected_year != "All years (Select all)":
+    df = df[df["year"] == int(selected_year)].copy()
+
 if df.empty:
-    st.warning("No rows in the selected year.")
+    st.warning("No rows for that selection.")
     st.stop()
 
 
