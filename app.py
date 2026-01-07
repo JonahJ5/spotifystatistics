@@ -2,7 +2,7 @@ import io
 import json
 import zipfile
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 import pandas as pd
 import streamlit as st
@@ -10,7 +10,7 @@ import plotly.express as px
 
 
 # -----------------------------
-# App config
+# App config 
 # -----------------------------
 st.set_page_config(page_title="Spotify Wrapped (Upload ZIP)", layout="wide")
 st.title("Spotify Wrapped-style Dashboard")
@@ -81,7 +81,7 @@ def load_spotify_from_zip(zip_bytes: bytes) -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
 
-    # Normalize Spotify fields
+    # Normalize Spotify fields 
     rename_map = {
         "ts": "played_at",
         "ms_played": "ms_played",
@@ -102,7 +102,10 @@ def load_spotify_from_zip(zip_bytes: bytes) -> pd.DataFrame:
     df["played_at"] = pd.to_datetime(df["played_at"], errors="coerce", utc=True)
     df["ms_played"] = pd.to_numeric(df["ms_played"], errors="coerce")
 
-    # Keep only real music plays (no missing metadata, ms_played > 0)
+    # Drop anything that is not really a music play:
+    # - must have timestamp
+    # - must have ms_played > 0
+    # - must have non-empty track/artist/album
     required = ["track", "artist", "album"]
     for c in required:
         df[c] = df[c].astype("string")
@@ -124,14 +127,14 @@ def load_spotify_from_zip(zip_bytes: bytes) -> pd.DataFrame:
     df["date"] = df["played_at"].dt.date
     df["day"] = df["played_at"].dt.floor("D")
     df["month"] = df["played_at"].dt.strftime("%Y-%m")
-    df["year"] = df["played_at"].dt.year.astype("int64")
+    df["year"] = df["played_at"].dt.year
     df["hour"] = df["played_at"].dt.hour
     df["dow"] = df["played_at"].dt.day_name()
 
     return df
 
 
-def safe_group_sum(df: pd.DataFrame, group_cols, value_col: str, topn: Optional[int] = None) -> pd.DataFrame:
+def safe_group_sum(df: pd.DataFrame, group_cols, value_col: str, topn: int | None = None) -> pd.DataFrame:
     out = (
         df.groupby(group_cols, as_index=False)[value_col].sum()
         .sort_values(value_col, ascending=False)
@@ -139,7 +142,7 @@ def safe_group_sum(df: pd.DataFrame, group_cols, value_col: str, topn: Optional[
     return out.head(topn) if topn else out
 
 
-def safe_group_count(df: pd.DataFrame, group_cols, topn: Optional[int] = None, name: str = "count") -> pd.DataFrame:
+def safe_group_count(df: pd.DataFrame, group_cols, topn: int | None = None, name: str = "count") -> pd.DataFrame:
     out = df.groupby(group_cols, as_index=False).size().rename(columns={"size": name})
     out = out.sort_values(name, ascending=False)
     return out.head(topn) if topn else out
@@ -223,13 +226,13 @@ if size_mb > MAX_ZIP_MB:
     st.stop()
 
 with st.spinner("Reading ZIP and parsing streaming history…"):
-    df_all = load_spotify_from_zip(uploaded.read())
+    df = load_spotify_from_zip(uploaded.read())
 
-if df_all.empty:
+if df.empty:
     st.error("After filtering, no valid music plays were found (track/artist/album missing or ms_played=0).")
     st.stop()
 
-st.success(f"Loaded {len(df_all):,} music play events (audio only, metadata required).")
+st.success(f"Loaded {len(df):,} music play events (audio only, metadata required).")
 
 
 # -----------------------------
@@ -240,21 +243,31 @@ with st.sidebar:
 
     topn = st.slider("Top N", min_value=5, max_value=50, value=DEFAULT_TOPN, step=5)
 
-    years = sorted(df_all["year"].dropna().unique().tolist())
-    year_options = ["All years (Select all)"] + [str(y) for y in years]
-    selected_year = st.selectbox("Year", options=year_options, index=0)
+    # Year filter (multi-select + select all)
+    available_years = sorted(df["year"].dropna().unique().tolist())
+    
+    select_all_years = st.checkbox("Select all years", value=True)
+    
+    if select_all_years:
+        selected_years = available_years
+    else:
+        selected_years = st.multiselect(
+            "Year(s)",
+            options=available_years,
+            default=available_years[:1] if available_years else [],
+        )
+
+# Apply year filter
+df = df[df["year"].isin(selected_years)].copy()
+
 
     show_preview = st.checkbox("Show preview table", value=False)
     session_gap = st.slider("Session gap (minutes)", 10, 120, 30, 5)
 
-# Apply year filter
-df = df_all.copy()
-if selected_year != "All years (Select all)":
-    df = df[df["year"] == int(selected_year)].copy()
-
 if df.empty:
-    st.warning("No rows for that selection.")
+    st.warning("No rows in the selected year(s).")
     st.stop()
+
 
 
 # -----------------------------
