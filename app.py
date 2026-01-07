@@ -243,18 +243,31 @@ with st.sidebar:
 
     topn = st.slider("Top N", min_value=5, max_value=50, value=DEFAULT_TOPN, step=5)
 
-    min_date = df["played_at"].min().date()
-    max_date = df["played_at"].max().date()
-    date_range = st.date_input("Date range (UTC)", value=(min_date, max_date))
-    start, end = date_range
-    df = df[(df["date"] >= start) & (df["date"] <= end)].copy()
+    # Year filter (multi-select + select all)
+    available_years = sorted(df["year"].dropna().unique().tolist())
+    
+    select_all_years = st.checkbox("Select all years", value=True)
+    
+    if select_all_years:
+        selected_years = available_years
+    else:
+        selected_years = st.multiselect(
+            "Year(s)",
+            options=available_years,
+            default=available_years[:1] if available_years else [],
+        )
+
+# Apply year filter
+df = df[df["year"].isin(selected_years)].copy()
+
 
     show_preview = st.checkbox("Show preview table", value=False)
     session_gap = st.slider("Session gap (minutes)", 10, 120, 30, 5)
 
 if df.empty:
-    st.warning("No rows in the selected date range.")
+    st.warning("No rows in the selected year(s).")
     st.stop()
+
 
 
 # -----------------------------
