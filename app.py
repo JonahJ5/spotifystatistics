@@ -14,8 +14,8 @@ import plotly.express as px
 # -----------------------------
 st.set_page_config(page_title="Spotify Wrapped (Upload ZIP)", layout="wide")
 st.title("Spotify Statistics")
-st.caption("request extended streaming history from spotify (https://www.spotify.com/us/account/privacy/")
-st.caption("this may take a few days to receive")
+st.caption("Request extended streaming history from spotify (https://www.spotify.com/us/account/privacy/)")
+st.caption("This may take a few days to receive")
 st.caption("Upload the ZIP file Spotify gives you (my_spotify_data.zip).")
 
 
