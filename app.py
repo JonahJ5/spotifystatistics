@@ -94,7 +94,6 @@ def load_spotify_from_zip(zip_bytes: bytes) -> pd.DataFrame:
         "master_metadata_track_name": "track",
         "master_metadata_album_artist_name": "artist",
         "master_metadata_album_album_name": "album",
-        "conn_country": "conn_country",
     }
     df = df.rename(columns=rename_map)
 
