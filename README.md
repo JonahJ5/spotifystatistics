@@ -73,7 +73,7 @@
      
      - dow = day of week (UTC)
 
-Sessions (inferred behavior)
+**Sessions:**
 
      The “Sessions & Behavior” tab infers sessions from timestamps:
      
