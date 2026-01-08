@@ -105,7 +105,7 @@
      
      - Timezone: all groupings are based on UTC
 
-**Dashboard features**
+**Dashboard features:**
 
      - Rankings: top artists, tracks, albums, and repeat distribution
      
@@ -119,7 +119,7 @@
 
      If enabled, it displays the first 100 rows of your filtered dataset. This allows users to see what data is being used.
 
-**Privacy note**
+**Privacy Note**
 
-     This app does not require Spotify login and does not connect to your Spotify account. It analyzes the ZIP you upload during your session and generates visualizations from it. 
+     This app does not require Spotify login and does not connect to your Spotify account.  It analyzes the ZIP you upload during your session and generates visualizations from it. 
 
