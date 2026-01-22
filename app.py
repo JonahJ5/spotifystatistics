@@ -22,11 +22,7 @@ st.caption("Upload the ZIP file Spotify gives you (my_spotify_data.zip).")
 ASSETS_DIR = Path(__file__).parent / "assets"
 HELP_IMG = ASSETS_DIR / "spotify_directions.png"
 
-with st.expander("⚠️ Important: Select *Extended streaming history* (not Account data)", expanded=True):
-    st.write(
-        "When requesting your Spotify download, make sure you check **Extended streaming history**. "
-        "If you upload **Account data**, this dashboard will not work."
-    )
+with st.expander("⚠️ Important: Select *Extended streaming history*", expanded=True):
     if HELP_IMG.exists():
         st.image(str(HELP_IMG), caption="Select Extended streaming history (lifetime).", use_container_width=True)
     else:
