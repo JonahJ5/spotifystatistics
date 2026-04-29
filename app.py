@@ -1,7 +1,7 @@
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-
+from spotify_app.html_report import build_dashboard_html_report
 from spotify_app.config import (
     DEFAULT_TOPN,
     HELP_IMG,
@@ -986,11 +986,22 @@ st.subheader("Share / Export")
 
 st.markdown(
     """
-    Download a shareable summary if you want to send your results to friends.
-    Technical JSON and CSV exports are also available below.
+    Download a shareable summary 
+    JSON and CSV exports are also available below.
     """
 )
+html_report_bytes = build_dashboard_html_report(
+    df=df,
+    topn=topn,
+    selected_timezone_label=selected_timezone_label,
+)
 
+st.download_button(
+    "Download Interactive Dashboard Report (HTML)",
+    data=html_report_bytes,
+    file_name="spotify_statistics_dashboard_report.html",
+    mime="text/html",
+)
 try:
     pdf_bytes = build_shareable_pdf(df, topn=min(topn, 10))
 
