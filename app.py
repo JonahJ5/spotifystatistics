@@ -133,13 +133,11 @@ def load_spotify_from_zip(zip_bytes: bytes) -> pd.DataFrame:
         (df["album"].str.strip() != "")
     ].copy()
 
-# Derived metrics
-df["minutes"] = df["ms_played"].fillna(0) / 60000.0
+    # Derived metrics
+    df["minutes"] = df["ms_played"].fillna(0) / 60000.0
 
-# Derived time fields
-df = add_time_fields(df)
-
-return df
+    # Derived time fields
+    df = add_time_fields(df)
 
     return df
 
