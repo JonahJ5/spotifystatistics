@@ -1,7 +1,6 @@
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from spotify_app.html_report import build_dashboard_html_report
 from spotify_app.config import (
     DEFAULT_TOPN,
     HELP_IMG,
