@@ -491,6 +491,7 @@ with tab_time:
             y="artist",
             orientation="h",
             title=f"Top Artists on {selected_day}",
+            color="artist",
             labels={"artist": "Artist", "minutes": "Minutes"},
             custom_data=["artist", "minutes"],
         )
@@ -561,7 +562,8 @@ with tab_time:
             y="label",
             orientation="h",
             title="Most Consecutively Repeated Songs",
-            labels={"repeat_count": "Consecutive Plays", "label": "Track"},
+            color="artist",
+            labels={"repeat_count": "Consecutive Plays", "label": "Track", "artist": "Artist"},
             custom_data=["track", "artist", "repeat_count", "streak_start_display", "streak_end_display"],
         )
 
