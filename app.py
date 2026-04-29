@@ -56,13 +56,13 @@ SESSION_GAP_MINUTES = 30
 MIN_STREAM_SECONDS = 30
 MIN_STREAM_MS = MIN_STREAM_SECONDS * 1000
 
-TIMEZONE_OPTIONS = [
-    "UTC",
-    "US/Pacific",
-    "US/Mountain",
-    "US/Central",
-    "US/Eastern",
-]
+TIMEZONE_OPTIONS = {
+    "Pacific Time": "America/Los_Angeles",
+    "Mountain Time": "America/Denver",
+    "Central Time": "America/Chicago",
+    "Eastern Time": "America/New_York",
+    "UTC": "UTC",
+}
 
 
 # -----------------------------
@@ -431,12 +431,14 @@ with st.sidebar:
 
     topn = st.slider("Top N", min_value=5, max_value=50, value=DEFAULT_TOPN, step=5)
 
-    selected_timezone = st.selectbox(
+    selected_timezone_label = st.selectbox(
         "Timezone",
-        options=TIMEZONE_OPTIONS,
-        index=TIMEZONE_OPTIONS.index("US/Pacific"),
+        options=list(TIMEZONE_OPTIONS.keys()),
+        index=0,
         help="Used for day-of-week, hour-of-day, most-listened days, and trend date grouping."
     )
+    
+    selected_timezone = TIMEZONE_OPTIONS[selected_timezone_label]
 
     df_all = add_time_fields(df_all, timezone=selected_timezone)
 
@@ -735,7 +737,7 @@ with tab_time:
             by_dow,
             x="day_of_week",
             y="minutes",
-            title=f"Minutes by Day of the Week — {selected_timezone}",
+            title=f"Minutes by Day of the Week — {selected_timezone_label}",
             color="day_of_week",
             labels={
                 "day_of_week": "Day of the Week",
@@ -761,7 +763,7 @@ with tab_time:
             by_hour,
             x="hour_label",
             y="minutes",
-            title=f"Minutes by Hour of Day — {selected_timezone}",
+            title=f"Minutes by Hour of Day — {selected_timezone_label}",
             color="hour",
             labels={
                 "hour_label": "Hour of Day",
