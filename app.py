@@ -989,18 +989,7 @@ st.markdown(
     JSON and CSV exports are also available below.
     """
 )
-html_report_bytes = build_dashboard_html_report(
-    df=df,
-    topn=topn,
-    selected_timezone_label=selected_timezone_label,
-)
 
-st.download_button(
-    "Download Interactive Dashboard Report (HTML)",
-    data=html_report_bytes,
-    file_name="spotify_statistics_dashboard_report.html",
-    mime="text/html",
-)
 try:
     pdf_bytes = build_shareable_pdf(df, topn=min(topn, 10))
 
