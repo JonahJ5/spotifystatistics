@@ -564,7 +564,7 @@ def period_settings(granularity: str):
     return "year", "Year"
 
 
--
+
 # -----------------------------
 # Upload / Example data
 # -----------------------------
