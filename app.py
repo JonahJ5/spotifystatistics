@@ -1086,8 +1086,6 @@ with tab_time:
         )
 
     st.subheader("Most repeated songs")
-    st.caption("Tracks played the most times consecutively — for the songs you just can’t get out of your head.")
-
     repeat_sequence = df.sort_values("played_at").copy()
     repeat_sequence["track_key"] = repeat_sequence["track"].astype(str) + " — " + repeat_sequence["artist"].astype(str)
     repeat_sequence["new_streak"] = repeat_sequence["track_key"] != repeat_sequence["track_key"].shift()
