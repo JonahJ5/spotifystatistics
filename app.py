@@ -30,21 +30,9 @@ st.markdown(
     """
 )
 
-st.info(
-    "To use your own data, request Extended Streaming History from Spotify, wait for the export, "
-    "then upload the ZIP file Spotify provides."
-)
-
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 HELP_IMG = ASSETS_DIR / "spotify_directions.png"
-
-with st.expander("⚠️ Important: Select *Extended streaming history*", expanded=True):
-    if HELP_IMG.exists():
-        st.image(str(HELP_IMG), caption="Select Extended streaming history (lifetime).", use_container_width=True)
-    else:
-        st.warning(f"Screenshot not found at: {HELP_IMG}")
-
 
 # -----------------------------
 # Constants
@@ -279,7 +267,198 @@ def make_zip_bytes(files: Dict[str, bytes]) -> bytes:
     buf.seek(0)
     return buf.read()
 
+def build_shareable_pdf(df: pd.DataFrame, topn: int, selected_timezone: str) -> bytes:
+    """Create a simple shareable PDF summary of the dashboard results."""
+    from html import escape
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
+    def clean_text(value, max_len: int = 48) -> str:
+        text = "" if pd.isna(value) else str(value)
+        text = text.replace("\n", " ").strip()
+        if len(text) > max_len:
+            text = text[: max_len - 3] + "..."
+        return escape(text)
+
+    def add_table(story, rows, col_widths=None):
+        if not rows:
+            return
+
+        table = Table(rows, colWidths=col_widths, repeatRows=1)
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1DB954")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F5F5F5")]),
+                ]
+            )
+        )
+        story.append(table)
+        story.append(Spacer(1, 0.18 * inch))
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=0.5 * inch,
+        leftMargin=0.5 * inch,
+        topMargin=0.5 * inch,
+        bottomMargin=0.5 * inch,
+    )
+
+    styles = getSampleStyleSheet()
+    story = []
+
+    story.append(Paragraph("Spotify Statistics Summary", styles["Title"]))
+    story.append(Paragraph("Created with Spotify Statistics by Jonah Jutzi", styles["Normal"]))
+    story.append(Paragraph(f"Timezone used: {clean_text(selected_timezone)}", styles["Normal"]))
+    story.append(Paragraph(f"Minimum stream length included: {MIN_STREAM_SECONDS} seconds", styles["Normal"]))
+    story.append(Spacer(1, 0.2 * inch))
+
+    total_minutes = df["minutes"].sum()
+    total_hours = total_minutes / 60
+    track_plays = len(df)
+    unique_artists = df["artist"].nunique()
+    unique_tracks = df["track"].nunique()
+    unique_albums = df["album"].nunique()
+
+    story.append(Paragraph("Dashboard Snapshot", styles["Heading2"]))
+
+    kpi_rows = [
+        ["Metric", "Value"],
+        ["Total Hours", f"{total_hours:,.1f}"],
+        ["Total Minutes", f"{total_minutes:,.0f}"],
+        ["Track Plays", f"{track_plays:,}"],
+        ["Unique Artists", f"{unique_artists:,}"],
+        ["Unique Tracks", f"{unique_tracks:,}"],
+        ["Unique Albums", f"{unique_albums:,}"],
+    ]
+
+    add_table(story, kpi_rows, col_widths=[2.5 * inch, 2.5 * inch])
+
+    story.append(Paragraph("Top Artists", styles["Heading2"]))
+
+    top_artists = safe_group_sum(df, ["artist"], "minutes", min(topn, 10))
+    artist_rows = [["Artist", "Minutes"]]
+    for _, row in top_artists.iterrows():
+        artist_rows.append([clean_text(row["artist"]), f"{row['minutes']:,.1f}"])
+
+    add_table(story, artist_rows, col_widths=[4.6 * inch, 1.2 * inch])
+
+    story.append(Paragraph("Top Tracks", styles["Heading2"]))
+
+    top_tracks = safe_group_sum(df, ["track", "artist", "album"], "minutes", min(topn, 10))
+    track_rows = [["Track", "Artist", "Album", "Minutes"]]
+    for _, row in top_tracks.iterrows():
+        track_rows.append(
+            [
+                clean_text(row["track"], 30),
+                clean_text(row["artist"], 24),
+                clean_text(row["album"], 28),
+                f"{row['minutes']:,.1f}",
+            ]
+        )
+
+    add_table(story, track_rows, col_widths=[1.9 * inch, 1.5 * inch, 1.8 * inch, 0.8 * inch])
+
+    story.append(Paragraph("Top Albums", styles["Heading2"]))
+
+    top_albums = safe_group_sum(df, ["album", "artist"], "minutes", min(topn, 10))
+    album_rows = [["Album", "Artist", "Minutes"]]
+    for _, row in top_albums.iterrows():
+        album_rows.append(
+            [
+                clean_text(row["album"], 36),
+                clean_text(row["artist"], 28),
+                f"{row['minutes']:,.1f}",
+            ]
+        )
+
+    add_table(story, album_rows, col_widths=[3.0 * inch, 2.0 * inch, 1.0 * inch])
+
+    story.append(Paragraph("Most-Listened Days", styles["Heading2"]))
+
+    top_days = (
+        df.groupby("day", as_index=False)
+        .agg(
+            total_minutes=("minutes", "sum"),
+            number_of_artists=("artist", "nunique"),
+            plays=("track", "size")
+        )
+        .sort_values("total_minutes", ascending=False)
+        .head(10)
+        .copy()
+    )
+
+    top_days["date"] = top_days["day"].dt.date
+
+    day_rows = [["Date", "Total Minutes", "Artists", "Track Plays"]]
+    for _, row in top_days.iterrows():
+        day_rows.append(
+            [
+                clean_text(row["date"]),
+                f"{row['total_minutes']:,.1f}",
+                f"{int(row['number_of_artists']):,}",
+                f"{int(row['plays']):,}",
+            ]
+        )
+
+    add_table(story, day_rows, col_widths=[1.8 * inch, 1.5 * inch, 1.2 * inch, 1.4 * inch])
+
+    repeat_sequence = df.sort_values("played_at").copy()
+    repeat_sequence["track_key"] = repeat_sequence["track"].astype(str) + " — " + repeat_sequence["artist"].astype(str)
+    repeat_sequence["new_streak"] = repeat_sequence["track_key"] != repeat_sequence["track_key"].shift()
+    repeat_sequence["streak_id"] = repeat_sequence["new_streak"].cumsum()
+
+    streaks = (
+        repeat_sequence.groupby("streak_id", as_index=False)
+        .agg(
+            track=("track", "first"),
+            artist=("artist", "first"),
+            repeat_count=("track", "size"),
+            streak_start=("played_at_local", "min"),
+            streak_end=("played_at_local", "max")
+        )
+    )
+
+    streaks = streaks[streaks["repeat_count"] > 1].copy()
+    streaks = streaks.sort_values("repeat_count", ascending=False).head(10)
+
+    if not streaks.empty:
+        story.append(Paragraph("Most Consecutively Repeated Songs", styles["Heading2"]))
+
+        repeat_rows = [["Track", "Artist", "Consecutive Plays"]]
+        for _, row in streaks.iterrows():
+            repeat_rows.append(
+                [
+                    clean_text(row["track"], 36),
+                    clean_text(row["artist"], 28),
+                    f"{int(row['repeat_count']):,}",
+                ]
+            )
+
+        add_table(story, repeat_rows, col_widths=[3.0 * inch, 2.0 * inch, 1.0 * inch])
+
+    story.append(Spacer(1, 0.2 * inch))
+    story.append(
+        Paragraph(
+            "Note: This PDF is a static shareable summary. The full dashboard contains additional interactive charts.",
+            styles["Italic"]
+        )
+    )
+
+    doc.build(story)
+    buffer.seek(0)
+
+    return buffer.read()
 def compute_sessions(df: pd.DataFrame, gap_minutes: int = 30) -> pd.DataFrame:
     if df["played_at"].isna().all():
         return pd.DataFrame()
@@ -385,6 +564,7 @@ def period_settings(granularity: str):
     return "year", "Year"
 
 
+-
 # -----------------------------
 # Upload / Example data
 # -----------------------------
@@ -416,13 +596,35 @@ if uploaded:
     st.success(f"Loaded {len(df_all):,} music play events from your Spotify data.")
 
 else:
+    st.info(
+        "To use your own data, request Extended Streaming History from Spotify, wait for the export, "
+        "then upload the ZIP file Spotify provides. After uploading, select the timezone that best matches "
+        "where you usually listen so day-of-week and hour-of-day charts are accurate."
+    )
+
+    with st.expander("How to request the correct Spotify data", expanded=False):
+        st.markdown(
+            """
+            When requesting your Spotify data, make sure to select **Extended streaming history**.
+            This is different from the smaller account-data export.
+            """
+        )
+
+        if HELP_IMG.exists():
+            st.image(
+                str(HELP_IMG),
+                caption="Select Extended streaming history.",
+                width=550
+            )
+        else:
+            st.warning(f"Screenshot not found at: {HELP_IMG}")
+
     df_all = make_example_data()
+
     st.info(
         "Showing example data so you can preview the dashboard. "
         "Upload your Spotify ZIP above to replace this with your personal listening history."
     )
-
-
 # -----------------------------
 # Sidebar controls
 # -----------------------------
@@ -1309,6 +1511,34 @@ with tab_info:
         This app is designed for Spotify's **Extended Streaming History** export. It looks for audio streaming history JSON files
         inside the ZIP file Spotify provides.
 
+        The app uses these fields from Spotify's data:
+
+        - `ts`: timestamp of the stream
+        - `ms_played`: milliseconds played
+        - `master_metadata_track_name`: track name
+        - `master_metadata_album_artist_name`: artist name
+        - `master_metadata_album_album_name`: album name
+
+        These fields are renamed inside the app as:
+
+        - `played_at`
+        - `ms_played`
+        - `track`
+        - `artist`
+        - `album`
+
+        The app then creates additional fields for analysis, including:
+
+        - `minutes`
+        - `date`
+        - `day`
+        - `week`
+        - `month`
+        - `year`
+        - `hour`
+        - `day_of_week`
+        - `played_at_local`
+
         ### Stream filtering
 
         To better match Spotify's stream-counting logic, this app only includes tracks played for at least
@@ -1317,11 +1547,14 @@ with tab_info:
         ### Timezone
 
         The timezone selector controls day-of-week, hour-of-day, most-listened days, and trend grouping.
+        Select the timezone that best reflects where you usually listen.
 
         ### Privacy
 
-        The app does not require your Spotify login. You upload your own ZIP file directly into the Streamlit app.
-        The dashboard is generated from the uploaded file during the active session.
+        The app does **not** require your Spotify login.
+
+        Your data is **not stored, saved, captured, or sent anywhere outside of the active Streamlit session**.
+        The uploaded ZIP file is only used to generate the dashboard while the app session is active.
 
         ### Example data
 
@@ -1334,40 +1567,62 @@ with tab_info:
         """
     )
 
-
 # -----------------------------
 # Export section
 # -----------------------------
 st.divider()
-st.subheader("Export")
+st.subheader("Share / Export")
 
-exports = build_exports(df, topn=topn)
-
-st.download_button(
-    "Download Wrapped Summary (JSON)",
-    data=exports["wrapped_summary.json"],
-    file_name="wrapped_summary.json",
-    mime="application/json",
+st.markdown(
+    """
+    Download a shareable summary if you want to send your results to friends.
+    Technical JSON and CSV exports are also available below.
+    """
 )
 
-csv_cols = st.columns(3)
-csv_files = ["top_artists.csv", "top_tracks.csv", "top_albums.csv"]
-csv_labels = ["Top Artists (CSV)", "Top Tracks (CSV)", "Top Albums (CSV)"]
+try:
+    pdf_bytes = build_shareable_pdf(df, topn=min(topn, 10), selected_timezone=selected_timezone)
 
-for col, fname, label in zip(csv_cols, csv_files, csv_labels):
-    with col:
-        st.download_button(
-            label,
-            data=exports[fname],
-            file_name=fname,
-            mime="text/csv"
-        )
+    st.download_button(
+        "Download Shareable Summary (PDF)",
+        data=pdf_bytes,
+        file_name="spotify_statistics_summary.pdf",
+        mime="application/pdf",
+    )
 
-zip_bytes = make_zip_bytes(exports)
+except ImportError:
+    st.warning(
+        "PDF export requires the `reportlab` package. Add `reportlab` to requirements.txt to enable this feature."
+    )
 
-st.download_button(
-    "Download ALL exports as ZIP",
-    data=zip_bytes,
-    file_name="wrapped_exports.zip",
-    mime="application/zip",
-)
+with st.expander("Technical exports: JSON and CSV", expanded=False):
+    exports = build_exports(df, topn=topn)
+
+    st.download_button(
+        "Download Wrapped Summary (JSON)",
+        data=exports["wrapped_summary.json"],
+        file_name="wrapped_summary.json",
+        mime="application/json",
+    )
+
+    csv_cols = st.columns(3)
+    csv_files = ["top_artists.csv", "top_tracks.csv", "top_albums.csv"]
+    csv_labels = ["Top Artists (CSV)", "Top Tracks (CSV)", "Top Albums (CSV)"]
+
+    for col, fname, label in zip(csv_cols, csv_files, csv_labels):
+        with col:
+            st.download_button(
+                label,
+                data=exports[fname],
+                file_name=fname,
+                mime="text/csv"
+            )
+
+    zip_bytes = make_zip_bytes(exports)
+
+    st.download_button(
+        "Download ALL technical exports as ZIP",
+        data=zip_bytes,
+        file_name="wrapped_exports.zip",
+        mime="application/zip",
+    )
