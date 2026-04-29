@@ -1,13 +1,28 @@
-import io
-import json
-import zipfile
-from pathlib import Path
-from typing import Dict, Optional
-import random
-
 import pandas as pd
-import streamlit as st
 import plotly.express as px
+import streamlit as st
+
+from spotify_app.config import (
+    DEFAULT_TOPN,
+    HELP_IMG,
+    MAX_ZIP_MB,
+    MIN_STREAM_SECONDS,
+    SESSION_GAP_MINUTES,
+    TIMEZONE_OPTIONS,
+)
+from spotify_app.data_loader import load_spotify_from_zip
+from spotify_app.data_transform import (
+    add_time_fields,
+    auto_hbar_height,
+    compute_sessions,
+    format_hour_label,
+    period_settings,
+    safe_group_count,
+    safe_group_sum,
+)
+from spotify_app.example_data import make_example_data
+from spotify_app.exports import build_exports, make_zip_bytes
+from spotify_app.pdf_report import build_shareable_pdf
 
 
 # -----------------------------
@@ -32,763 +47,6 @@ st.markdown(
     [View the GitHub repository](https://github.com/JonahJ5/spotifystatistics)
     """
 )
-
-
-ASSETS_DIR = Path(__file__).parent / "assets"
-HELP_IMG = ASSETS_DIR / "spotify_directions.png"
-
-
-# -----------------------------
-# Constants
-# -----------------------------
-MAX_ZIP_MB = 300
-MAX_FILES = 500
-DEFAULT_TOPN = 15
-SESSION_GAP_MINUTES = 30
-MIN_STREAM_SECONDS = 30
-MIN_STREAM_MS = MIN_STREAM_SECONDS * 1000
-
-TIMEZONE_OPTIONS = {
-    "Pacific Time": "America/Los_Angeles",
-    "Mountain Time": "America/Denver",
-    "Central Time": "America/Chicago",
-    "Eastern Time": "America/New_York",
-    "UTC": "UTC",
-}
-
-
-# -----------------------------
-# Helpers
-# -----------------------------
-def is_safe_path(filename: str) -> bool:
-    p = Path(filename)
-    return (not p.is_absolute()) and (".." not in p.parts)
-
-
-def _is_audio_streaming_history_json(name: str) -> bool:
-    n = name.lower()
-
-    if not n.endswith(".json"):
-        return False
-
-    if "streaming_history_audio" in n:
-        return True
-
-    if "streaming_history" in n and "video" not in n:
-        return True
-
-    return False
-
-
-def _auto_hbar_height(
-    n_rows: int,
-    min_h: int = 450,
-    per_row: int = 26,
-    pad: int = 140,
-    max_h: int = 2200,
-) -> int:
-    """Make horizontal bar charts tall enough so labels do not get cut off when Top N grows."""
-    return min(max_h, max(min_h, pad + per_row * max(1, n_rows)))
-
-
-def format_hour_label(hour: int) -> str:
-    """Convert 0-23 hour to user-friendly time labels."""
-    if hour == 0:
-        return "12 AM"
-    if hour < 12:
-        return f"{hour} AM"
-    if hour == 12:
-        return "12 PM"
-    return f"{hour - 12} PM"
-
-
-def add_time_fields(df: pd.DataFrame, timezone: str = "UTC") -> pd.DataFrame:
-    """Add reusable local time fields for charts."""
-    d = df.copy()
-
-    local_time = d["played_at"].dt.tz_convert(timezone).dt.tz_localize(None)
-
-    d["played_at_local"] = local_time
-    d["date"] = local_time.dt.date
-    d["day"] = local_time.dt.floor("D")
-    d["week"] = local_time.dt.to_period("W").dt.start_time
-    d["month"] = local_time.dt.strftime("%Y-%m")
-    d["year"] = local_time.dt.year.astype("int64")
-
-    d["hour"] = local_time.dt.hour
-    d["hour_label"] = d["hour"].apply(format_hour_label)
-
-    d["day_of_week"] = local_time.dt.day_name()
-    d["dow"] = d["day_of_week"]
-
-    return d
-
-
-def load_spotify_from_zip(zip_bytes: bytes) -> pd.DataFrame:
-    """Parse Spotify streaming history JSON files from a ZIP into a DataFrame."""
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-        infos = [i for i in zf.infolist() if is_safe_path(i.filename)]
-
-        if len(infos) > MAX_FILES:
-            raise ValueError(f"Too many files in zip ({len(infos)}).")
-
-        targets = [i for i in infos if _is_audio_streaming_history_json(i.filename)]
-
-        if not targets:
-            raise ValueError(
-                "Could not find any audio Streaming History JSON files in the ZIP.\n"
-                "Look for files named like 'Streaming_History_Audio_*.json' inside your export."
-            )
-
-        rows = []
-
-        for info in targets:
-            with zf.open(info) as f:
-                try:
-                    data = json.load(f)
-                except json.JSONDecodeError:
-                    continue
-
-            if isinstance(data, list):
-                for ev in data:
-                    if isinstance(ev, dict):
-                        ev["_source_file"] = info.filename
-                        rows.append(ev)
-
-        if not rows:
-            raise ValueError("No play events found in the ZIP.")
-
-    df = pd.DataFrame(rows)
-
-    rename_map = {
-        "ts": "played_at",
-        "ms_played": "ms_played",
-        "master_metadata_track_name": "track",
-        "master_metadata_album_artist_name": "artist",
-        "master_metadata_album_album_name": "album",
-    }
-
-    df = df.rename(columns=rename_map)
-
-    for col in ["played_at", "ms_played", "track", "artist", "album"]:
-        if col not in df.columns:
-            df[col] = pd.NA
-
-    df["played_at"] = pd.to_datetime(df["played_at"], errors="coerce", utc=True)
-    df["ms_played"] = pd.to_numeric(df["ms_played"], errors="coerce")
-
-    required = ["track", "artist", "album"]
-
-    for c in required:
-        df[c] = df[c].astype("string")
-
-    df = df.dropna(subset=["played_at"])
-    df = df[df["ms_played"].fillna(0) >= MIN_STREAM_MS]
-
-    df = df.dropna(subset=required)
-    df = df[
-        (df["track"].str.strip() != "")
-        & (df["artist"].str.strip() != "")
-        & (df["album"].str.strip() != "")
-    ].copy()
-
-    df["minutes"] = df["ms_played"].fillna(0) / 60000.0
-    df = add_time_fields(df)
-
-    return df
-
-
-def safe_group_sum(
-    df: pd.DataFrame,
-    group_cols,
-    value_col: str,
-    topn: Optional[int] = None,
-) -> pd.DataFrame:
-    out = (
-        df.groupby(group_cols, as_index=False)[value_col].sum()
-        .sort_values(value_col, ascending=False)
-    )
-
-    return out.head(topn) if topn else out
-
-
-def safe_group_count(
-    df: pd.DataFrame,
-    group_cols,
-    topn: Optional[int] = None,
-    name: str = "count",
-) -> pd.DataFrame:
-    out = df.groupby(group_cols, as_index=False).size().rename(columns={"size": name})
-    out = out.sort_values(name, ascending=False)
-
-    return out.head(topn) if topn else out
-
-
-def build_exports(df: pd.DataFrame, topn: int) -> Dict[str, bytes]:
-    exports: Dict[str, bytes] = {}
-
-    summary = {
-        "rows": int(len(df)),
-        "start_utc": str(df["played_at"].min()) if len(df) else None,
-        "end_utc": str(df["played_at"].max()) if len(df) else None,
-        "total_minutes": float(df["minutes"].sum()),
-        "track_plays": int(len(df)),
-        "unique_artists": int(df["artist"].nunique()),
-        "unique_tracks": int(df["track"].nunique()),
-        "unique_albums": int(df["album"].nunique()),
-        "minimum_stream_seconds": MIN_STREAM_SECONDS,
-    }
-
-    top_artists = safe_group_sum(df, ["artist"], "minutes", topn)
-    top_tracks = safe_group_sum(df, ["track", "artist", "album"], "minutes", topn)
-    top_albums = safe_group_sum(df, ["album", "artist"], "minutes", topn)
-
-    summary["top_artists"] = top_artists.to_dict(orient="records")
-    summary["top_tracks"] = top_tracks.to_dict(orient="records")
-    summary["top_albums"] = top_albums.to_dict(orient="records")
-
-    exports["wrapped_summary.json"] = json.dumps(summary, indent=2).encode("utf-8")
-    exports["top_artists.csv"] = top_artists.to_csv(index=False).encode("utf-8")
-    exports["top_tracks.csv"] = top_tracks.to_csv(index=False).encode("utf-8")
-    exports["top_albums.csv"] = top_albums.to_csv(index=False).encode("utf-8")
-
-    daily = df.groupby("day", as_index=False)["minutes"].sum().sort_values("day")
-    exports["daily_minutes.csv"] = daily.to_csv(index=False).encode("utf-8")
-
-    monthly = df.groupby("month", as_index=False)["minutes"].sum().sort_values("month")
-    exports["monthly_minutes.csv"] = monthly.to_csv(index=False).encode("utf-8")
-
-    return exports
-
-
-def make_zip_bytes(files: Dict[str, bytes]) -> bytes:
-    buf = io.BytesIO()
-
-    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as z:
-        for name, data in files.items():
-            z.writestr(name, data)
-
-    buf.seek(0)
-    return buf.read()
-
-
-def compute_sessions(df: pd.DataFrame, gap_minutes: int = 30) -> pd.DataFrame:
-    """Create listening sessions based on inactivity gaps."""
-    if df["played_at"].isna().all():
-        return pd.DataFrame()
-
-    d = df.sort_values("played_at").copy()
-    gaps = d["played_at"].diff().dt.total_seconds().fillna(0) / 60.0
-
-    d["new_session"] = (gaps > gap_minutes).astype(int)
-    d["session_id"] = d["new_session"].cumsum()
-
-    sessions = d.groupby("session_id", as_index=False).agg(
-        session_start=("played_at", "min"),
-        session_end=("played_at", "max"),
-        plays=("played_at", "size"),
-        minutes=("minutes", "sum"),
-    )
-
-    sessions["duration_minutes"] = (
-        sessions["session_end"] - sessions["session_start"]
-    ).dt.total_seconds() / 60.0
-
-    sessions["session_date"] = sessions["session_start"].dt.date
-
-    return sessions.sort_values("session_start")
-
-
-def build_shareable_pdf(df: pd.DataFrame, topn: int) -> bytes:
-    """Create a multi-page shareable PDF summary with one page per dashboard tab."""
-    from io import BytesIO
-
-    from reportlab.lib import colors
-    from reportlab.lib.pagesizes import landscape, letter
-    from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.lib.units import inch
-    from reportlab.platypus import (
-        SimpleDocTemplate,
-        Paragraph,
-        Spacer,
-        Table,
-        TableStyle,
-        PageBreak,
-        Image,
-    )
-
-    def clean_text(value, max_len: int = 48) -> str:
-        text = "" if pd.isna(value) else str(value)
-        text = text.replace("\n", " ").strip()
-        if len(text) > max_len:
-            text = text[: max_len - 3] + "..."
-        return text
-
-    def add_table(story, rows, col_widths=None):
-        if not rows:
-            return
-
-        table = Table(rows, colWidths=col_widths, repeatRows=1)
-        table.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1DB954")),
-                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                    ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("FONTSIZE", (0, 0), (-1, -1), 8),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F7F7F7")]),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                    ("TOPPADDING", (0, 0), (-1, -1), 4),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                ]
-            )
-        )
-        story.append(table)
-        story.append(Spacer(1, 0.16 * inch))
-
-    def fig_to_rl_image(fig, width_inches=4.8, height_inches=2.7):
-        fig.update_layout(
-            margin=dict(l=50, r=20, t=50, b=45),
-            font=dict(size=10),
-        )
-        img_bytes = fig.to_image(
-            format="png",
-            width=int(width_inches * 300),
-            height=int(height_inches * 300),
-            scale=1,
-        )
-        return Image(
-            BytesIO(img_bytes),
-            width=width_inches * inch,
-            height=height_inches * inch,
-        )
-
-    def add_chart_pair(story, fig_left, fig_right, width_inches=4.8, height_inches=2.6):
-        left_img = fig_to_rl_image(fig_left, width_inches=width_inches, height_inches=height_inches)
-        right_img = fig_to_rl_image(fig_right, width_inches=width_inches, height_inches=height_inches)
-
-        chart_table = Table(
-            [[left_img, right_img]],
-            colWidths=[width_inches * inch, width_inches * inch],
-        )
-        chart_table.setStyle(
-            TableStyle(
-                [
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 12),
-                    ("TOPPADDING", (0, 0), (-1, -1), 0),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-                ]
-            )
-        )
-        story.append(chart_table)
-        story.append(Spacer(1, 0.14 * inch))
-
-    def add_single_chart(story, fig, width_inches=10.0, height_inches=2.3):
-        img = fig_to_rl_image(fig, width_inches=width_inches, height_inches=height_inches)
-        story.append(img)
-        story.append(Spacer(1, 0.14 * inch))
-
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=landscape(letter),
-        rightMargin=0.45 * inch,
-        leftMargin=0.45 * inch,
-        topMargin=0.45 * inch,
-        bottomMargin=0.45 * inch,
-    )
-
-    styles = getSampleStyleSheet()
-    story = []
-
-    date_source = "played_at_local" if "played_at_local" in df.columns else "played_at"
-    start_date = pd.to_datetime(df[date_source]).min().strftime("%b %d, %Y")
-    end_date = pd.to_datetime(df[date_source]).max().strftime("%b %d, %Y")
-
-    total_minutes = df["minutes"].sum()
-    total_hours = total_minutes / 60
-    track_plays = len(df)
-    unique_artists = df["artist"].nunique()
-    unique_tracks = df["track"].nunique()
-    unique_albums = df["album"].nunique()
-
-    order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    hour_order = [format_hour_label(h) for h in range(24)]
-
-    # Page 1: Rankings
-    story.append(Paragraph("Spotify Statistics Summary", styles["Title"]))
-    story.append(Paragraph("Created with Spotify Statistics by Jonah Jutzi", styles["Normal"]))
-    story.append(Paragraph(f"Listening history range: {start_date} to {end_date}", styles["Normal"]))
-    story.append(Spacer(1, 0.18 * inch))
-    story.append(Paragraph("Rankings", styles["Heading1"]))
-
-    kpi_rows = [
-        ["Metric", "Value"],
-        ["Total Hours", f"{total_hours:,.1f}"],
-        ["Total Minutes", f"{total_minutes:,.0f}"],
-        ["Track Plays", f"{track_plays:,}"],
-        ["Unique Artists", f"{unique_artists:,}"],
-        ["Unique Tracks", f"{unique_tracks:,}"],
-        ["Unique Albums", f"{unique_albums:,}"],
-    ]
-    add_table(story, kpi_rows, col_widths=[2.4 * inch, 1.6 * inch])
-
-    top_artists = safe_group_sum(df, ["artist"], "minutes", min(topn, 10)).copy()
-    top_artists["hours"] = top_artists["minutes"] / 60.0
-    fig_artists = px.bar(
-        top_artists.sort_values("hours", ascending=True),
-        x="hours",
-        y="artist",
-        orientation="h",
-        title="Top Artists by Hours",
-        labels={"hours": "Hours", "artist": "Artist"},
-    )
-    fig_artists.update_layout(showlegend=False)
-
-    top_tracks = safe_group_sum(df, ["track", "artist", "album"], "minutes", min(topn, 10)).copy()
-    top_tracks["hours"] = top_tracks["minutes"] / 60.0
-    top_tracks["track_label"] = top_tracks["track"].apply(lambda x: clean_text(x, 28))
-    fig_tracks = px.bar(
-        top_tracks.sort_values("hours", ascending=True),
-        x="hours",
-        y="track_label",
-        orientation="h",
-        title="Top Tracks by Hours",
-        labels={"hours": "Hours", "track_label": "Track"},
-    )
-    fig_tracks.update_layout(showlegend=False)
-
-    add_chart_pair(story, fig_artists, fig_tracks, width_inches=4.9, height_inches=2.7)
-
-    top_albums = safe_group_sum(df, ["album", "artist"], "minutes", min(topn, 8)).copy()
-    top_albums["hours"] = top_albums["minutes"] / 60.0
-    top_albums["album_label"] = top_albums["album"].apply(lambda x: clean_text(x, 35))
-    fig_albums = px.bar(
-        top_albums.sort_values("hours", ascending=True),
-        x="hours",
-        y="album_label",
-        orientation="h",
-        title="Top Albums by Hours",
-        labels={"hours": "Hours", "album_label": "Album"},
-    )
-    fig_albums.update_layout(showlegend=False)
-
-    add_single_chart(story, fig_albums, width_inches=10.0, height_inches=2.0)
-
-    # Page 2: Time Patterns
-    story.append(PageBreak())
-    story.append(Paragraph("Time Patterns", styles["Heading1"]))
-    story.append(Spacer(1, 0.08 * inch))
-
-    by_dow = df.groupby("day_of_week", as_index=False)["minutes"].sum()
-    by_dow["day_of_week"] = pd.Categorical(by_dow["day_of_week"], categories=order, ordered=True)
-    by_dow = by_dow.sort_values("day_of_week")
-    by_dow["hours"] = by_dow["minutes"] / 60.0
-
-    fig_dow = px.bar(
-        by_dow,
-        x="day_of_week",
-        y="hours",
-        title="Hours by Day of the Week",
-        labels={"day_of_week": "Day of the Week", "hours": "Hours"},
-    )
-    fig_dow.update_layout(showlegend=False)
-
-    by_hour = df.groupby(["hour", "hour_label"], as_index=False)["minutes"].sum().sort_values("hour")
-    by_hour["hour_label"] = pd.Categorical(by_hour["hour_label"], categories=hour_order, ordered=True)
-    by_hour = by_hour.sort_values("hour_label")
-    by_hour["hours"] = by_hour["minutes"] / 60.0
-
-    fig_hour = px.bar(
-        by_hour,
-        x="hour_label",
-        y="hours",
-        title="Hours by Hour of Day",
-        labels={"hour_label": "Hour of Day", "hours": "Hours"},
-    )
-    fig_hour.update_layout(showlegend=False)
-
-    add_chart_pair(story, fig_dow, fig_hour, width_inches=4.9, height_inches=2.6)
-
-    repeat_sequence = df.sort_values("played_at").copy()
-    repeat_sequence["track_key"] = (
-        repeat_sequence["track"].astype(str) + " — " + repeat_sequence["artist"].astype(str)
-    )
-    repeat_sequence["new_streak"] = repeat_sequence["track_key"] != repeat_sequence["track_key"].shift()
-    repeat_sequence["streak_id"] = repeat_sequence["new_streak"].cumsum()
-
-    streaks = (
-        repeat_sequence.groupby("streak_id", as_index=False)
-        .agg(
-            track=("track", "first"),
-            artist=("artist", "first"),
-            repeat_count=("track", "size"),
-        )
-    )
-    streaks = streaks[streaks["repeat_count"] > 1].copy()
-    streaks = streaks.sort_values("repeat_count", ascending=False).head(10)
-
-    if not streaks.empty:
-        streaks["label"] = (
-            streaks["track"].apply(lambda x: clean_text(x, 28))
-            + " — "
-            + streaks["artist"].apply(lambda x: clean_text(x, 20))
-        )
-
-        fig_repeat = px.bar(
-            streaks.sort_values("repeat_count", ascending=True),
-            x="repeat_count",
-            y="label",
-            orientation="h",
-            title="Most Consecutively Repeated Songs",
-            labels={"repeat_count": "Consecutive Plays", "label": "Track"},
-        )
-        fig_repeat.update_layout(showlegend=False)
-        add_single_chart(story, fig_repeat, width_inches=10.0, height_inches=2.2)
-
-    # Page 3: Trends
-    story.append(PageBreak())
-    story.append(Paragraph("Trends", styles["Heading1"]))
-    story.append(Spacer(1, 0.08 * inch))
-
-    month_count = df["month"].nunique()
-    trend_col = "month" if month_count <= 60 else "year"
-    trend_label = "Month" if trend_col == "month" else "Year"
-
-    listening_trend = (
-        df.groupby(trend_col, as_index=False)["minutes"].sum()
-        .sort_values(trend_col)
-    )
-    listening_trend["hours"] = listening_trend["minutes"] / 60.0
-
-    fig_listening = px.line(
-        listening_trend,
-        x=trend_col,
-        y="hours",
-        title=f"Hours Over Time by {trend_label}",
-        labels={trend_col: trend_label, "hours": "Hours"},
-    )
-
-    cumulative = listening_trend.copy()
-    cumulative["cumulative_hours"] = cumulative["hours"].cumsum()
-
-    fig_cumulative = px.line(
-        cumulative,
-        x=trend_col,
-        y="cumulative_hours",
-        title=f"Cumulative Hours Over Time by {trend_label}",
-        labels={trend_col: trend_label, "cumulative_hours": "Cumulative Hours"},
-    )
-
-    add_chart_pair(story, fig_listening, fig_cumulative, width_inches=4.9, height_inches=2.8)
-
-    diversity = (
-        df.groupby(trend_col, as_index=False)
-        .agg(unique_artists=("artist", "nunique"))
-        .sort_values(trend_col)
-    )
-
-    fig_diversity = px.line(
-        diversity,
-        x=trend_col,
-        y="unique_artists",
-        title=f"Artist Diversity Over Time by {trend_label}",
-        labels={trend_col: trend_label, "unique_artists": "Unique Artists"},
-    )
-
-    first_artist = (
-        df.sort_values("played_at")
-        .groupby("artist", as_index=False)
-        .first()[["artist", "played_at"]]
-    )
-
-    if trend_col == "month":
-        first_artist["period"] = first_artist["played_at"].dt.strftime("%Y-%m")
-        discovery_label = "Month"
-    else:
-        first_artist["period"] = first_artist["played_at"].dt.year
-        discovery_label = "Year"
-
-    discovery = (
-        first_artist.groupby("period", as_index=False)
-        .size()
-        .rename(columns={"size": "new_artists"})
-        .sort_values("period")
-    )
-
-    fig_discovery = px.bar(
-        discovery,
-        x="period",
-        y="new_artists",
-        title=f"New Artists Discovered by {discovery_label}",
-        labels={"period": discovery_label, "new_artists": "New Artists"},
-    )
-    fig_discovery.update_layout(showlegend=False)
-
-    add_chart_pair(story, fig_diversity, fig_discovery, width_inches=4.9, height_inches=2.3)
-
-    # Page 4: Sessions & Behavior
-    story.append(PageBreak())
-    story.append(Paragraph("Sessions & Behavior", styles["Heading1"]))
-    story.append(Spacer(1, 0.08 * inch))
-
-    sessions = compute_sessions(df, gap_minutes=SESSION_GAP_MINUTES)
-
-    if sessions.empty:
-        story.append(Paragraph("No sessions could be computed.", styles["Normal"]))
-    else:
-        duration_sessions = sessions[sessions["duration_minutes"] > 0].copy()
-
-        if duration_sessions.empty:
-            fig_duration = px.histogram(
-                sessions.assign(duration_minutes=0),
-                x="duration_minutes",
-                nbins=20,
-                title="Session Duration Distribution",
-                labels={"duration_minutes": "Session Duration (Minutes)"},
-            )
-        else:
-            fig_duration = px.histogram(
-                duration_sessions,
-                x="duration_minutes",
-                nbins=40,
-                title="Session Duration Distribution",
-                labels={"duration_minutes": "Session Duration (Minutes)"},
-            )
-
-        fig_duration.update_layout(showlegend=False)
-
-        fig_minutes = px.histogram(
-            sessions,
-            x="minutes",
-            nbins=40,
-            title="Minutes per Session Distribution",
-            labels={"minutes": "Minutes per Session"},
-        )
-        fig_minutes.update_layout(showlegend=False)
-
-        add_chart_pair(story, fig_duration, fig_minutes, width_inches=4.9, height_inches=2.6)
-
-        fig_scatter = px.scatter(
-            sessions,
-            x="plays",
-            y="minutes",
-            title="Plays vs. Minutes per Session",
-            labels={"plays": "Track Plays", "minutes": "Minutes"},
-        )
-        fig_scatter.update_layout(showlegend=False)
-
-        add_single_chart(story, fig_scatter, width_inches=10.0, height_inches=2.2)
-
-        longest = sessions.sort_values("minutes", ascending=False).head(8).copy()
-        longest["session_date"] = longest["session_start"].dt.date
-
-        longest_rows = [["Session Date", "Minutes", "Duration Minutes", "Track Plays"]]
-
-        for _, row in longest.iterrows():
-            longest_rows.append(
-                [
-                    clean_text(row["session_date"]),
-                    f"{row['minutes']:,.1f}",
-                    f"{row['duration_minutes']:,.1f}",
-                    f"{int(row['plays']):,}",
-                ]
-            )
-
-        add_table(
-            story,
-            longest_rows,
-            col_widths=[2.0 * inch, 1.5 * inch, 2.0 * inch, 1.5 * inch],
-        )
-
-    doc.build(story)
-    buffer.seek(0)
-
-    return buffer.read()
-
-
-def make_example_data(n_rows: int = 2500) -> pd.DataFrame:
-    """Create fake Spotify-style listening data so users can preview the dashboard."""
-    rng = random.Random(42)
-
-    artists = [
-        "Arctic Monkeys", "SZA", "Kendrick Lamar", "Tame Impala", "Fleetwood Mac",
-        "Drake", "Frank Ocean", "Taylor Swift", "The Weeknd", "Mac Miller",
-        "Paramore", "Tyler, The Creator",
-    ]
-
-    tracks_by_artist = {
-        "Arctic Monkeys": ["Do I Wanna Know?", "505", "R U Mine?", "Fluorescent Adolescent"],
-        "SZA": ["Kill Bill", "Good Days", "Snooze", "Broken Clocks"],
-        "Kendrick Lamar": ["HUMBLE.", "Money Trees", "DNA.", "Alright"],
-        "Tame Impala": ["The Less I Know The Better", "Let It Happen", "Eventually", "Borderline"],
-        "Fleetwood Mac": ["Dreams", "The Chain", "Go Your Own Way", "Landslide"],
-        "Drake": ["Passionfruit", "God's Plan", "One Dance", "Headlines"],
-        "Frank Ocean": ["Pink + White", "Nights", "Thinkin Bout You", "Lost"],
-        "Taylor Swift": ["Cruel Summer", "Style", "Anti-Hero", "Blank Space"],
-        "The Weeknd": ["Blinding Lights", "Save Your Tears", "Starboy", "Out of Time"],
-        "Mac Miller": ["Good News", "Self Care", "Dang!", "Weekend"],
-        "Paramore": ["Still Into You", "Hard Times", "Misery Business", "Ain't It Fun"],
-        "Tyler, The Creator": ["See You Again", "EARFQUAKE", "WUSYANAME", "Sweet"],
-    }
-
-    artist_weights = [11, 10, 10, 9, 8, 8, 8, 8, 8, 7, 6, 5]
-
-    hour_weights = [
-        2, 1, 1, 1, 1, 2, 4, 6, 7, 6, 5, 5,
-        6, 6, 7, 8, 9, 11, 13, 14, 12, 9, 6, 4,
-    ]
-
-    today = pd.Timestamp.now(tz="UTC").floor("D")
-    start = today - pd.Timedelta(days=365)
-
-    rows = []
-
-    for _ in range(n_rows):
-        artist = rng.choices(artists, weights=artist_weights, k=1)[0]
-        track = rng.choice(tracks_by_artist[artist])
-        album = f"{artist} Essentials"
-
-        day_offset = rng.randrange(365)
-        hour = rng.choices(list(range(24)), weights=hour_weights, k=1)[0]
-        minute = rng.randrange(60)
-
-        played_at = start + pd.Timedelta(days=day_offset, hours=hour, minutes=minute)
-        ms_played = rng.randint(MIN_STREAM_MS, 240_000)
-
-        rows.append({
-            "played_at": played_at,
-            "ms_played": ms_played,
-            "track": track,
-            "artist": artist,
-            "album": album,
-            "_source_file": "example_data",
-        })
-
-    example = pd.DataFrame(rows).sort_values("played_at").reset_index(drop=True)
-    example["minutes"] = example["ms_played"] / 60000.0
-    example = add_time_fields(example)
-
-    return example
-
-
-def period_settings(granularity: str):
-    """Return the dataframe column and display label for a selected time grouping."""
-    if granularity == "Day":
-        return "day", "Day"
-
-    if granularity == "Week":
-        return "week", "Week"
-
-    if granularity == "Month":
-        return "month", "Month"
-
-    return "year", "Year"
 
 
 # -----------------------------
@@ -945,7 +203,7 @@ with tab_rank:
 
         fig.update_layout(
             showlegend=False,
-            height=_auto_hbar_height(len(plot_df)),
+            height=auto_hbar_height(len(plot_df)),
             yaxis=dict(automargin=True),
             margin=dict(l=260, r=20, t=60, b=20),
         )
@@ -979,7 +237,7 @@ with tab_rank:
 
         fig.update_layout(
             showlegend=False,
-            height=_auto_hbar_height(len(plot_df)),
+            height=auto_hbar_height(len(plot_df)),
             yaxis=dict(automargin=True),
             margin=dict(l=320, r=20, t=60, b=20),
         )
@@ -1014,7 +272,7 @@ with tab_rank:
 
         fig.update_layout(
             showlegend=False,
-            height=_auto_hbar_height(len(plot_df)),
+            height=auto_hbar_height(len(plot_df)),
             yaxis=dict(automargin=True),
             margin=dict(l=320, r=20, t=60, b=20),
         )
@@ -1042,7 +300,7 @@ with tab_rank:
 
         fig.update_layout(
             showlegend=False,
-            height=_auto_hbar_height(len(plot_df)),
+            height=auto_hbar_height(len(plot_df)),
             yaxis=dict(automargin=True),
             margin=dict(l=260, r=20, t=60, b=20),
         )
@@ -1120,7 +378,7 @@ with tab_rank:
 
     fig.update_layout(
         showlegend=False,
-        height=_auto_hbar_height(len(plot_df)),
+        height=auto_hbar_height(len(plot_df)),
         yaxis=dict(automargin=True),
         margin=dict(l=340, r=20, t=60, b=20),
     )
@@ -1248,7 +506,7 @@ with tab_time:
 
         fig.update_layout(
             showlegend=False,
-            height=_auto_hbar_height(len(top_day_artists)),
+            height=auto_hbar_height(len(top_day_artists)),
             yaxis=dict(automargin=True),
             margin=dict(l=260, r=20, t=60, b=20),
         )
@@ -1325,7 +583,7 @@ with tab_time:
 
         fig.update_layout(
             showlegend=False,
-            height=_auto_hbar_height(len(plot_df)),
+            height=auto_hbar_height(len(plot_df)),
             yaxis=dict(automargin=True),
             margin=dict(l=340, r=20, t=60, b=20),
         )
