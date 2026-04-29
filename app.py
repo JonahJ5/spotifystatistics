@@ -680,33 +680,38 @@ def build_shareable_pdf(df: pd.DataFrame, topn: int) -> bytes:
             col_widths=[2.0 * inch, 1.5 * inch, 2.0 * inch, 1.5 * inch],
         )
 
-    doc.build(story)
-    buffer.seek(0)
-    return buffer.read()
+        doc.build(story)
+        buffer.seek(0)
+        return buffer.read()
+    
+    
     def compute_sessions(df: pd.DataFrame, gap_minutes: int = 30) -> pd.DataFrame:
-    if df["played_at"].isna().all():
-        return pd.DataFrame()
+        if df["played_at"].isna().all():
+            return pd.DataFrame()
+    
+        d = df.sort_values("played_at").copy()
+        gaps = d["played_at"].diff().dt.total_seconds().fillna(0) / 60.0
+    
+        d["new_session"] = (gaps > gap_minutes).astype(int)
+        d["session_id"] = d["new_session"].cumsum()
+    
+        sessions = d.groupby("session_id", as_index=False).agg(
+            session_start=("played_at", "min"),
+            session_end=("played_at", "max"),
+            plays=("played_at", "size"),
+            minutes=("minutes", "sum"),
+        )
+    
+        sessions["duration_minutes"] = (
+            sessions["session_end"] - sessions["session_start"]
+        ).dt.total_seconds() / 60.0
+    
+        sessions["session_date"] = sessions["session_start"].dt.date
+    
+        return sessions.sort_values("session_start")
 
-    d = df.sort_values("played_at").copy()
-    gaps = d["played_at"].diff().dt.total_seconds().fillna(0) / 60.0
-
-    d["new_session"] = (gaps > gap_minutes).astype(int)
-    d["session_id"] = d["new_session"].cumsum()
-
-    sessions = d.groupby("session_id", as_index=False).agg(
-        session_start=("played_at", "min"),
-        session_end=("played_at", "max"),
-        plays=("played_at", "size"),
-        minutes=("minutes", "sum"),
-    )
-
-    sessions["duration_minutes"] = (
-        sessions["session_end"] - sessions["session_start"]
-    ).dt.total_seconds() / 60.0
-
-    sessions["session_date"] = sessions["session_start"].dt.date
-
-    return sessions.sort_values("session_start")
+    
+ 
 
 
 def make_example_data(n_rows: int = 2500) -> pd.DataFrame:
@@ -1803,7 +1808,7 @@ st.markdown(
 )
 
 try:
-    pdf_bytes = build_shareable_pdf(df, topn=min(topn, 10), selected_timezone=selected_timezone)
+    pdf_bytes = build_shareable_pdf(df, topn=min(topn, 10))
 
     st.download_button(
         "Download Shareable Summary (PDF)",
@@ -1813,9 +1818,7 @@ try:
     )
 
 except ImportError:
-    st.warning(
-        "PDF export requires the `reportlab` package. Add `reportlab` to requirements.txt to enable this feature."
-    )
+    st.warning("PDF export requires the `reportlab` and `kaleido` packages. Add both to requirements.txt to enable this feature.")
 
 with st.expander("Technical exports: JSON and CSV", expanded=False):
     exports = build_exports(df, topn=topn)
