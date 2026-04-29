@@ -35,14 +35,13 @@ st.caption("Created by Jonah Jutzi")
 
 st.markdown(
     """
-    Explore your Spotify listening history through interactive charts, rankings, trends, and session-based insights.
-
     This app uses your **Spotify Extended Streaming History** export to show your top artists, tracks, albums,
     listening patterns, repeated songs, and listening sessions. If you have not uploaded your data yet, the dashboard
     will show example data so you can preview how everything works.
 
     **Need your data?** Request your Spotify Extended Streaming History here:  
     [Spotify Privacy / Account Data Request](https://www.spotify.com/us/account/privacy/)
+    According to Spotify, Extended Streaming Data has a "preparation time of 30 days", but from my experience, it is usually closer to a week.
 
     [View the GitHub repository](https://github.com/JonahJ5/spotifystatistics)
     """
@@ -84,10 +83,6 @@ else:
         "To use your own data, request Extended Streaming History from Spotify, wait for the export, "
         "then upload the ZIP file Spotify provides. After uploading, select the timezone that best matches "
         "where you usually listen so day-of-week and hour-of-day charts are accurate."
-    )
-
-    st.markdown(
-        "[Request your Spotify Extended Streaming History here](https://www.spotify.com/us/account/privacy/)"
     )
 
     with st.expander("How to request the correct Spotify data", expanded=False):
