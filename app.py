@@ -15,13 +15,25 @@ import plotly.express as px
 # -----------------------------
 st.set_page_config(page_title="Spotify Statistics", layout="wide")
 
-st.title("Spotify Statistics")
+sst.title("Spotify Statistics")
 st.caption("Created by Jonah Jutzi")
-st.markdown("[View the GitHub repository](https://github.com/JonahJ5/spotifystatistics)")
 
-st.caption("Request Extended Streaming History from Spotify: https://www.spotify.com/us/account/privacy/")
-st.caption("This may take a few days to receive.")
-st.caption("Upload the ZIP file Spotify gives you, usually named `my_spotify_data.zip`.")
+st.markdown(
+    """
+    Explore your Spotify listening history through interactive charts, rankings, trends, and session-based insights.
+
+    This app uses your **Spotify Extended Streaming History** export to show your top artists, tracks, albums,
+    listening patterns, repeated songs, and listening sessions. If you have not uploaded your data yet, the dashboard
+    will show example data so you can preview how everything works.
+
+    [View the GitHub repository](https://github.com/JonahJ5/spotifystatistics)
+    """
+)
+
+st.info(
+    "To use your own data, request Extended Streaming History from Spotify, wait for the export, "
+    "then upload the ZIP file Spotify provides."
+)
 
 
 ASSETS_DIR = Path(__file__).parent / "assets"
@@ -41,7 +53,15 @@ MAX_ZIP_MB = 300
 MAX_FILES = 500
 DEFAULT_TOPN = 15
 SESSION_GAP_MINUTES = 30
-
+MIN_STREAM_SECONDS = 30
+MIN_STREAM_MS = MIN_STREAM_SECONDS * 1000
+TIMEZONE_OPTIONS = [
+    "UTC",
+    "US/Pacific",
+    "US/Mountain",
+    "US/Central",
+    "US/Eastern",
+]
 
 # -----------------------------
 # Helpers
@@ -88,20 +108,23 @@ def format_hour_label(hour: int) -> str:
     return f"{hour - 12} PM"
 
 
-def add_time_fields(df: pd.DataFrame) -> pd.DataFrame:
+def add_time_fields(df: pd.DataFrame, timezone: str = "{selected_timezone") -> pd.DataFrame:
     """Add reusable time fields for clearer charts."""
     d = df.copy()
 
-    d["date"] = d["played_at"].dt.date
-    d["day"] = d["played_at"].dt.floor("D")
-    d["week"] = d["played_at"].dt.to_period("W").dt.start_time
-    d["month"] = d["played_at"].dt.strftime("%Y-%m")
-    d["year"] = d["played_at"].dt.year.astype("int64")
+    local_time = d["played_at"].dt.tz_convert(timezone).dt.tz_localize(None)
 
-    d["hour"] = d["played_at"].dt.hour
+    d["played_at_local"] = local_time
+    d["date"] = local_time.dt.date
+    d["day"] = local_time.dt.floor("D")
+    d["week"] = local_time.dt.to_period("W").dt.start_time
+    d["month"] = local_time.dt.strftime("%Y-%m")
+    d["year"] = local_time.dt.year.astype("int64")
+
+    d["hour"] = local_time.dt.hour
     d["hour_label"] = d["hour"].apply(format_hour_label)
 
-    d["day_of_week"] = d["played_at"].dt.day_name()
+    d["day_of_week"] = local_time.dt.day_name()
     d["dow"] = d["day_of_week"]
 
     return d
@@ -157,7 +180,7 @@ def load_spotify_from_zip(zip_bytes: bytes) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = pd.NA
 
-    df["played_at"] = pd.to_datetime(df["played_at"], errors="coerce", utc=True)
+    df["played_at"] = pd.to_datetime(df["played_at"], errors="coerce", {selected_timezone=True)
     df["ms_played"] = pd.to_numeric(df["ms_played"], errors="coerce")
 
     required = ["track", "artist", "album"]
@@ -166,7 +189,7 @@ def load_spotify_from_zip(zip_bytes: bytes) -> pd.DataFrame:
         df[c] = df[c].astype("string")
 
     df = df.dropna(subset=["played_at"])
-    df = df[df["ms_played"].fillna(0) > 0]
+    df = df[df["ms_played"].fillna(0) >= MIN_STREAM_MS]
 
     df = df.dropna(subset=required)
     df = df[
@@ -311,7 +334,7 @@ def make_example_data(n_rows: int = 2500) -> pd.DataFrame:
         6, 6, 7, 8, 9, 11, 13, 14, 12, 9, 6, 4
     ]
 
-    today = pd.Timestamp.now(tz="UTC").floor("D")
+    today = pd.Timestamp.now(tz="{selected_timezone").floor("D")
     start = today - pd.Timedelta(days=365)
 
     rows = []
@@ -380,7 +403,7 @@ if uploaded:
         df_all = load_spotify_from_zip(uploaded.read())
 
     if df_all.empty:
-        st.error("After filtering, no valid music plays were found: track/artist/album missing or ms_played=0.")
+        st.error("After filtering, no valid music plays were found.")
         st.stop()
 
     st.success(f"Loaded {len(df_all):,} music play events from your Spotify data.")
@@ -401,7 +424,16 @@ with st.sidebar:
 
     topn = st.slider("Top N", min_value=5, max_value=50, value=DEFAULT_TOPN, step=5)
 
-    years = sorted(df_all["year"].dropna().unique().tolist())
+selected_timezone = st.selectbox(
+    "Timezone",
+    options=TIMEZONE_OPTIONS,
+    index=TIMEZONE_OPTIONS.index("US/Pacific"),
+    help="Used for day-of-week, hour-of-day, most-listened days, and trend date grouping."
+)
+
+df_all = add_time_fields(df_all, timezone=selected_timezone)
+
+years = sorted(df_all["year"].dropna().unique().tolist())
     year_options = ["All years (Select all)"] + [str(y) for y in years]
     selected_year = st.selectbox("Year", options=year_options, index=0)
 
@@ -422,12 +454,13 @@ if df.empty:
 # -----------------------------
 # KPIs
 # -----------------------------
-k1, k2, k3, k4 = st.columns(4)
+k1, k2, k3, k4, k5 = st.columns(5)
 
 k1.metric("Total minutes", f"{df['minutes'].sum():,.0f}")
-k2.metric("Unique artists", f"{df['artist'].nunique():,}")
-k3.metric("Unique tracks", f"{df['track'].nunique():,}")
-k4.metric("Unique albums", f"{df['album'].nunique():,}")
+k2.metric("Track plays", f"{len(df):,}")
+k3.metric("Unique artists", f"{df['artist'].nunique():,}")
+k4.metric("Unique tracks", f"{df['track'].nunique():,}")
+k5.metric("Unique albums", f"{df['album'].nunique():,}")
 
 if show_preview:
     st.subheader("Preview (filtered)")
@@ -437,8 +470,8 @@ if show_preview:
 # -----------------------------
 # Tabs
 # -----------------------------
-tab_rank, tab_time, tab_trends, tab_sessions = st.tabs(
-    ["Rankings", "Time Patterns", "Trends", "Sessions & Behavior"]
+tab_rank, tab_time, tab_trends, tab_sessions, tab_info = st.tabs(
+    ["Rankings", "Time Patterns", "Trends", "Sessions & Behavior", "Info"]
 )
 
 
@@ -480,7 +513,7 @@ with tab_rank:
         st.plotly_chart(fig, use_container_width=True)
 
     with c2:
-        top_tracks = safe_group_sum(df, ["track", "artist"], "minutes", topn)
+        top_tracks = safe_group_sum(df, ["track", "artist", "album"], "minutes", topn)
         plot_df = top_tracks.sort_values("minutes", ascending=True)
 
         fig = px.bar(
@@ -493,16 +526,18 @@ with tab_rank:
             labels={
                 "track": "Track",
                 "artist": "Artist",
+                "album": "Album",
                 "minutes": "Minutes"
             },
-            custom_data=["track", "artist", "minutes"]
+            custom_data=["track", "artist", "album", "minutes"]
         )
-
+        
         fig.update_traces(
             hovertemplate=(
                 "Track: %{customdata[0]}<br>"
                 "Artist: %{customdata[1]}<br>"
-                "Minutes: %{customdata[2]:,.1f}"
+                "Album: %{customdata[2]}<br>"
+                "Minutes: %{customdata[3]:,.1f}"
                 "<extra></extra>"
             )
         )
@@ -519,7 +554,7 @@ with tab_rank:
     c3, c4 = st.columns(2)
 
     with c3:
-        top_albums = safe_group_sum(df, ["album"], "minutes", topn)
+        top_albums = safe_group_sum(df, ["album", "artist"], "minutes", topn)
         plot_df = top_albums.sort_values("minutes", ascending=True)
 
         fig = px.bar(
@@ -531,13 +566,19 @@ with tab_rank:
             color="album",
             labels={
                 "album": "Album",
+                "artist": "Artist",
                 "minutes": "Minutes"
             },
-            custom_data=["album", "minutes"]
+            custom_data=["album", "artist", "minutes"]
         )
-
+        
         fig.update_traces(
-            hovertemplate="Album: %{customdata[0]}<br>Minutes: %{customdata[1]:,.1f}<extra></extra>"
+            hovertemplate=(
+                "Album: %{customdata[0]}<br>"
+                "Artist: %{customdata[1]}<br>"
+                "Minutes: %{customdata[2]:,.1f}"
+                "<extra></extra>"
+            )
         )
 
         fig.update_layout(
@@ -585,27 +626,41 @@ with tab_rank:
         .size()
         .rename(columns={"size": "plays"})
     )
-
-    fig = px.histogram(
-        plays_per_track,
+    
+    repeat_dist = (
+        plays_per_track.groupby("plays", as_index=False)
+        .size()
+        .rename(columns={"size": "number_of_tracks"})
+        .sort_values("plays")
+    )
+    
+    fig = px.bar(
+        repeat_dist,
         x="plays",
-        nbins=40,
+        y="number_of_tracks",
         title="Track Repeat Distribution",
         labels={
-            "plays": "Plays per Track"
-        }
+            "plays": "Plays per Track",
+            "number_of_tracks": "Number of Tracks"
+        },
+        custom_data=["plays", "number_of_tracks"]
     )
-
+    
     fig.update_traces(
-        hovertemplate="Plays per Track: %{x}<br>Number of Tracks: %{y}<extra></extra>"
+        hovertemplate=(
+            "Plays per Track: %{customdata[0]}<br>"
+            "Number of Tracks: %{customdata[1]:,}"
+            "<extra></extra>"
+        )
     )
-
+    
     fig.update_layout(
-        yaxis_title="Number of Tracks",
-        xaxis_title="Plays per Track"
+        xaxis_title="Plays per Track",
+        yaxis_title="Number of Tracks"
     )
 
     st.plotly_chart(fig, use_container_width=True)
+
 
     st.subheader("Artist peak days (each artist’s biggest single day)")
 
@@ -674,7 +729,7 @@ with tab_time:
             by_dow,
             x="day_of_week",
             y="minutes",
-            title="Minutes by Day of the Week — UTC",
+            title="Minutes by Day of the Week — {selected_timezone",
             color="day_of_week",
             labels={
                 "day_of_week": "Day of the Week",
@@ -700,7 +755,7 @@ with tab_time:
             by_hour,
             x="hour_label",
             y="minutes",
-            title="Minutes by Hour of Day — UTC",
+            title="Minutes by Hour of Day — {selected_timezone",
             color="hour",
             labels={
                 "hour_label": "Hour of Day",
@@ -734,11 +789,20 @@ with tab_time:
     daily_total["date"] = daily_total["day"].dt.date
     daily_total["total_minutes"] = daily_total["total_minutes"].round(1)
 
-    st.dataframe(
-        daily_total[["date", "total_minutes", "number_of_artists", "plays"]],
-        use_container_width=True,
-        hide_index=True
-    )
+   daily_display = daily_total[["date", "total_minutes", "number_of_artists", "plays"]].rename(
+    columns={
+        "date": "Date",
+        "total_minutes": "Total Minutes",
+        "number_of_artists": "Number of Artists",
+        "plays": "Track Plays"
+    }
+)
+
+st.dataframe(
+    daily_display,
+    use_container_width=True,
+    hide_index=True
+)
 
     day_options = daily_total["date"].astype(str).tolist()
 
@@ -790,20 +854,96 @@ with tab_time:
         st.plotly_chart(fig, use_container_width=True)
 
         top_day_tracks = (
-            day_detail.groupby(["track", "artist"], as_index=False)["minutes"].sum()
-            .sort_values("minutes", ascending=False)
+            day_detail.groupby(["track", "artist"], as_index=False)
+            .size()
+            .rename(columns={"size": "track_plays"})
+            .sort_values("track_plays", ascending=False)
             .head(10)
         )
-
-        top_day_tracks["minutes"] = top_day_tracks["minutes"].round(1)
-
+        
+        top_day_tracks_display = top_day_tracks.rename(
+            columns={
+                "track": "Track",
+                "artist": "Artist",
+                "track_plays": "Track Plays"
+            }
+        )
+        
         st.dataframe(
-            top_day_tracks[["track", "artist", "minutes"]],
+            top_day_tracks_display[["Track", "Artist", "Track Plays"]],
             use_container_width=True,
             hide_index=True
         )
-
-
+        
+        st.subheader("Most repeated songs")
+        st.caption("Tracks played the most times consecutively — for the songs you just can’t get out of your head.")
+        
+        repeat_sequence = df.sort_values("played_at").copy()
+        repeat_sequence["track_key"] = repeat_sequence["track"].astype(str) + " — " + repeat_sequence["artist"].astype(str)
+        repeat_sequence["new_streak"] = repeat_sequence["track_key"] != repeat_sequence["track_key"].shift()
+        repeat_sequence["streak_id"] = repeat_sequence["new_streak"].cumsum()
+        
+        streaks = (
+            repeat_sequence.groupby("streak_id", as_index=False)
+            .agg(
+                track=("track", "first"),
+                artist=("artist", "first"),
+                repeat_count=("track", "size"),
+                streak_start=("played_at_local", "min"),
+                streak_end=("played_at_local", "max")
+            )
+        )
+        
+        streaks = streaks[streaks["repeat_count"] > 1].copy()
+        streaks = streaks.sort_values("repeat_count", ascending=False).head(topn)
+        
+        if streaks.empty:
+            st.info("No consecutive repeated tracks found for the current selection.")
+        else:
+            streaks["label"] = streaks["track"] + " — " + streaks["artist"]
+            streaks["streak_start_display"] = streaks["streak_start"].dt.strftime("%b %d, %Y %I:%M %p")
+            streaks["streak_end_display"] = streaks["streak_end"].dt.strftime("%b %d, %Y %I:%M %p")
+        
+            plot_df = streaks.sort_values("repeat_count", ascending=True)
+        
+            fig = px.bar(
+                plot_df,
+                x="repeat_count",
+                y="label",
+                orientation="h",
+                title="Most Consecutively Repeated Songs",
+                labels={
+                    "repeat_count": "Consecutive Plays",
+                    "label": "Track"
+                },
+                custom_data=[
+                    "track",
+                    "artist",
+                    "repeat_count",
+                    "streak_start_display",
+                    "streak_end_display"
+                ]
+            )
+        
+            fig.update_traces(
+                hovertemplate=(
+                    "Track: %{customdata[0]}<br>"
+                    "Artist: %{customdata[1]}<br>"
+                    "Consecutive Plays: %{customdata[2]:,}<br>"
+                    "Start: %{customdata[3]}<br>"
+                    "End: %{customdata[4]}"
+                    "<extra></extra>"
+                )
+            )
+        
+            fig.update_layout(
+                showlegend=False,
+                height=_auto_hbar_height(len(plot_df)),
+                yaxis=dict(automargin=True),
+                margin=dict(l=340, r=20, t=60, b=20),
+            )
+        
+            st.plotly_chart(fig, use_container_width=True)
 # -----------------------------
 # Trends tab
 # -----------------------------
@@ -1000,26 +1140,35 @@ with tab_sessions:
         c1, c2 = st.columns(2)
 
         with c1:
-            fig = px.histogram(
-                sessions,
-                x="duration_minutes",
-                nbins=40,
-                title="Session Duration Distribution",
-                labels={
-                    "duration_minutes": "Session Duration in Minutes"
-                }
-            )
+            duration_sessions = sessions[sessions["duration_minutes"] > 0].copy()
 
-            fig.update_traces(
-                hovertemplate="Session Duration: %{x:.1f} minutes<br>Number of Sessions: %{y}<extra></extra>"
-            )
-
-            fig.update_layout(
-                xaxis_title="Session Duration in Minutes",
-                yaxis_title="Number of Sessions"
-            )
-
-            st.plotly_chart(fig, use_container_width=True)
+            if duration_sessions.empty:
+                st.info("No multi-track sessions available for duration distribution.")
+            else:
+                fig = px.histogram(
+                    duration_sessions,
+                    x="duration_minutes",
+                    nbins=50,
+                    title="Multi-track Session Duration Distribution",
+                    labels={
+                        "duration_minutes": "Session Duration in Minutes"
+                    }
+                )
+            
+                fig.update_traces(
+                    hovertemplate=(
+                        "Session Duration: %{x:.1f} minutes<br>"
+                        "Number of Sessions: %{y}"
+                        "<extra></extra>"
+                    )
+                )
+            
+                fig.update_layout(
+                    xaxis_title="Session Duration in Minutes",
+                    yaxis_title="Number of Sessions"
+                )
+            
+                st.plotly_chart(fig, use_container_width=True)
 
         with c2:
             fig = px.histogram(
@@ -1057,8 +1206,8 @@ with tab_sessions:
 
         sessions_plot = sessions.copy()
         sessions_plot["session_date_display"] = pd.to_datetime(sessions_plot["session_date"]).astype(str)
-        sessions_plot["session_start_display"] = sessions_plot["session_start"].dt.strftime("%b %d, %Y %I:%M %p UTC")
-        sessions_plot["session_end_display"] = sessions_plot["session_end"].dt.strftime("%b %d, %Y %I:%M %p UTC")
+        sessions_plot["session_start_display"] = sessions_plot["session_start"].dt.strftime("%b %d, %Y %I:%M %p {selected_timezone")
+        sessions_plot["session_end_display"] = sessions_plot["session_end"].dt.strftime("%b %d, %Y %I:%M %p {selected_timezone")
 
         fig = px.scatter(
             sessions_plot,
