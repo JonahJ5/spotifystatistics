@@ -244,6 +244,31 @@ with tab_rank:
         st.plotly_chart(fig, use_container_width=True)
 
     with c2:
+        top_artists_plays = safe_group_count(df, ["artist"], topn, name="plays")
+        plot_df = top_artists_plays.sort_values("plays", ascending=True)
+
+        fig = px.bar(
+            plot_df,
+            x="plays",
+            y="artist",
+            orientation="h",
+            title="Top Artists by Plays",
+            color="artist",
+            labels={"artist": "Artist", "plays": "Plays"},
+            custom_data=["artist", "plays"],
+        )
+
+        fig.update_traces(
+            hovertemplate="Artist: %{customdata[0]}<br>Plays: %{customdata[1]:,}<extra></extra>"
+        )
+
+        polish_hbar(fig, len(plot_df), left_margin=260)
+
+        st.plotly_chart(fig, use_container_width=True)
+
+    c3, c4 = st.columns(2)
+
+    with c3:
         top_tracks = safe_group_sum(df, ["track", "artist", "album"], "minutes", topn)
         plot_df = top_tracks.sort_values("minutes", ascending=True)
 
@@ -272,9 +297,38 @@ with tab_rank:
 
         st.plotly_chart(fig, use_container_width=True)
 
-    c3, c4 = st.columns(2)
+    with c4:
+        top_tracks_plays = safe_group_count(df, ["track", "artist", "album"], topn, name="plays")
+        plot_df = top_tracks_plays.sort_values("plays", ascending=True)
 
-    with c3:
+        fig = px.bar(
+            plot_df,
+            x="plays",
+            y="track",
+            orientation="h",
+            title="Top Tracks by Plays",
+            color="track",
+            labels={"track": "Track", "artist": "Artist", "album": "Album", "plays": "Plays"},
+            custom_data=["track", "artist", "album", "plays"],
+        )
+
+        fig.update_traces(
+            hovertemplate=(
+                "Track: %{customdata[0]}<br>"
+                "Artist: %{customdata[1]}<br>"
+                "Album: %{customdata[2]}<br>"
+                "Plays: %{customdata[3]:,}"
+                "<extra></extra>"
+            )
+        )
+
+        polish_hbar(fig, len(plot_df), left_margin=320)
+
+        st.plotly_chart(fig, use_container_width=True)
+
+    c5, c6 = st.columns(2)
+
+    with c5:
         top_albums = safe_group_sum(df, ["album", "artist"], "minutes", topn)
         plot_df = top_albums.sort_values("minutes", ascending=True)
 
@@ -302,26 +356,31 @@ with tab_rank:
 
         st.plotly_chart(fig, use_container_width=True)
 
-    with c4:
-        top_artists_plays = safe_group_count(df, ["artist"], topn, name="plays")
-        plot_df = top_artists_plays.sort_values("plays", ascending=True)
+    with c6:
+        top_albums_plays = safe_group_count(df, ["album", "artist"], topn, name="plays")
+        plot_df = top_albums_plays.sort_values("plays", ascending=True)
 
         fig = px.bar(
             plot_df,
             x="plays",
-            y="artist",
+            y="album",
             orientation="h",
-            title="Top Artists by Play Count",
-            color="artist",
-            labels={"artist": "Artist", "plays": "Plays"},
-            custom_data=["artist", "plays"],
+            title="Top Albums by Plays",
+            color="album",
+            labels={"album": "Album", "artist": "Artist", "plays": "Plays"},
+            custom_data=["album", "artist", "plays"],
         )
 
         fig.update_traces(
-            hovertemplate="Artist: %{customdata[0]}<br>Plays: %{customdata[1]:,}<extra></extra>"
+            hovertemplate=(
+                "Album: %{customdata[0]}<br>"
+                "Artist: %{customdata[1]}<br>"
+                "Plays: %{customdata[2]:,}"
+                "<extra></extra>"
+            )
         )
 
-        polish_hbar(fig, len(plot_df), left_margin=260)
+        polish_hbar(fig, len(plot_df), left_margin=320)
 
         st.plotly_chart(fig, use_container_width=True)
 
@@ -369,7 +428,7 @@ with tab_rank:
 
     artist_peaks = artist_peaks.sort_values("minutes", ascending=False).head(topn).copy()
     artist_peaks["date"] = artist_peaks["day"].dt.date
-    artist_peaks["label"] = artist_peaks["artist"] + " — " + artist_peaks["date"].astype(str)
+    artist_peaks["label"] = artist_peaks["artist"] + " - " + artist_peaks["date"].astype(str)
     artist_peaks["peak_hours"] = artist_peaks["minutes"] / 60.0
 
     plot_df = artist_peaks.sort_values("minutes", ascending=True)
@@ -413,19 +472,20 @@ with tab_time:
         by_dow = df.groupby("day_of_week", as_index=False)["minutes"].sum()
         by_dow["day_of_week"] = pd.Categorical(by_dow["day_of_week"], categories=order, ordered=True)
         by_dow = by_dow.sort_values("day_of_week")
+        by_dow["hours"] = by_dow["minutes"] / 60.0
 
         fig = px.bar(
             by_dow,
             x="day_of_week",
-            y="minutes",
-            title=f"Minutes by Day of the Week — {selected_timezone_label}",
+            y="hours",
+            title=f"Hours by Day of the Week - {selected_timezone_label}",
             color="day_of_week",
-            labels={"day_of_week": "Day of the Week", "minutes": "Minutes"},
-            custom_data=["day_of_week", "minutes"],
+            labels={"day_of_week": "Day of the Week", "hours": "Hours"},
+            custom_data=["day_of_week", "hours"],
         )
 
         fig.update_traces(
-            hovertemplate="Day of the Week: %{customdata[0]}<br>Minutes: %{customdata[1]:,.1f}<extra></extra>"
+            hovertemplate="Day of the Week: %{customdata[0]}<br>Hours: %{customdata[1]:,.2f}<extra></extra>"
         )
 
         polish_chart(fig)
@@ -436,19 +496,20 @@ with tab_time:
         by_hour = df.groupby(["hour", "hour_label"], as_index=False)["minutes"].sum().sort_values("hour")
         by_hour["hour_label"] = pd.Categorical(by_hour["hour_label"], categories=hour_order, ordered=True)
         by_hour = by_hour.sort_values("hour_label")
+        by_hour["hours"] = by_hour["minutes"] / 60.0
 
         fig = px.bar(
             by_hour,
             x="hour_label",
-            y="minutes",
-            title=f"Minutes by Hour of Day — {selected_timezone_label}",
+            y="hours",
+            title=f"Hours by Hour of Day - {selected_timezone_label}",
             color="hour",
-            labels={"hour_label": "Hour of Day", "minutes": "Minutes"},
-            custom_data=["hour_label", "minutes"],
+            labels={"hour_label": "Hour of Day", "hours": "Hours"},
+            custom_data=["hour_label", "hours"],
         )
 
         fig.update_traces(
-            hovertemplate="Hour of Day: %{customdata[0]}<br>Minutes: %{customdata[1]:,.1f}<extra></extra>"
+            hovertemplate="Hour of Day: %{customdata[0]}<br>Hours: %{customdata[1]:,.2f}<extra></extra>"
         )
 
         polish_chart(fig)
@@ -461,13 +522,13 @@ with tab_time:
         .reindex(order)
         .reindex(columns=list(range(24)))
         .fillna(0)
-    )
+    ) / 60.0
 
     fig = px.imshow(
         heatmap_data,
         aspect="auto",
         title=f"Listening Heatmap by Day and Hour - {selected_timezone_label}",
-        labels=dict(x="Hour of Day", y="Day of Week", color="Minutes"),
+        labels=dict(x="Hour of Day", y="Day of Week", color="Hours"),
         x=hour_order,
         y=order,
     )
@@ -476,14 +537,14 @@ with tab_time:
         hovertemplate=(
             "Day: %{y}<br>"
             "Hour: %{x}<br>"
-            "Minutes: %{z:,.1f}"
+            "Hours: %{z:,.2f}"
             "<extra></extra>"
         )
     )
 
     polish_chart(fig, height=430)
     fig.update_layout(
-        coloraxis_colorbar=dict(title="Minutes"),
+        coloraxis_colorbar=dict(title="Hours"),
         xaxis=dict(side="top", tickangle=0, showgrid=False),
         yaxis=dict(showgrid=False),
     )
@@ -505,12 +566,12 @@ with tab_time:
     )
 
     daily_total["date"] = daily_total["day"].dt.date
-    daily_total["total_minutes"] = daily_total["total_minutes"].round(1)
+    daily_total["total_hours"] = (daily_total["total_minutes"] / 60.0).round(2)
 
-    daily_display = daily_total[["date", "total_minutes", "number_of_artists", "plays"]].rename(
+    daily_display = daily_total[["date", "total_hours", "number_of_artists", "plays"]].rename(
         columns={
             "date": "Date",
-            "total_minutes": "Total Minutes",
+            "total_hours": "Total Hours",
             "number_of_artists": "Number of Artists",
             "plays": "Track Plays",
         }
@@ -531,7 +592,7 @@ with tab_time:
     with st.expander(f"Details for {selected_day}", expanded=True):
         day_k1, day_k2, day_k3 = st.columns(3)
 
-        day_k1.metric("Total minutes", f"{day_detail['minutes'].sum():,.1f}")
+        day_k1.metric("Total hours", f"{day_detail['minutes'].sum() / 60.0:,.2f}")
         day_k2.metric("Unique artists", f"{day_detail['artist'].nunique():,}")
         day_k3.metric("Track plays", f"{len(day_detail):,}")
 
@@ -540,20 +601,21 @@ with tab_time:
             .sort_values("minutes", ascending=False)
             .head(10)
         )
+        top_day_artists["hours"] = top_day_artists["minutes"] / 60.0
 
         fig = px.bar(
-            top_day_artists.sort_values("minutes", ascending=True),
-            x="minutes",
+            top_day_artists.sort_values("hours", ascending=True),
+            x="hours",
             y="artist",
             orientation="h",
             title=f"Top Artists on {selected_day}",
             color="artist",
-            labels={"artist": "Artist", "minutes": "Minutes"},
-            custom_data=["artist", "minutes"],
+            labels={"artist": "Artist", "hours": "Hours"},
+            custom_data=["artist", "hours"],
         )
 
         fig.update_traces(
-            hovertemplate="Artist: %{customdata[0]}<br>Minutes: %{customdata[1]:,.1f}<extra></extra>"
+            hovertemplate="Artist: %{customdata[0]}<br>Hours: %{customdata[1]:,.2f}<extra></extra>"
         )
 
         polish_hbar(fig, len(top_day_artists), left_margin=260)
@@ -580,7 +642,7 @@ with tab_time:
 
     st.subheader("Most repeated songs")
     repeat_sequence = df.sort_values("played_at").copy()
-    repeat_sequence["track_key"] = repeat_sequence["track"].astype(str) + " — " + repeat_sequence["artist"].astype(str)
+    repeat_sequence["track_key"] = repeat_sequence["track"].astype(str) + " - " + repeat_sequence["artist"].astype(str)
     repeat_sequence["new_streak"] = repeat_sequence["track_key"] != repeat_sequence["track_key"].shift()
     repeat_sequence["streak_id"] = repeat_sequence["new_streak"].cumsum()
 
@@ -601,7 +663,7 @@ with tab_time:
     if streaks.empty:
         st.info("No consecutive repeated tracks found for the current selection.")
     else:
-        streaks["label"] = streaks["track"] + " — " + streaks["artist"]
+        streaks["label"] = streaks["track"] + " - " + streaks["artist"]
         streaks["streak_start_display"] = streaks["streak_start"].dt.strftime("%b %d, %Y %I:%M %p")
         streaks["streak_end_display"] = streaks["streak_end"].dt.strftime("%b %d, %Y %I:%M %p")
 
@@ -643,7 +705,7 @@ with tab_trends:
     trend_granularity = st.selectbox(
         "Choose time grouping for listening trend",
         options=["Day", "Week", "Year"],
-        index=0,
+        index=1,
     )
 
     period_col, period_label = period_settings(trend_granularity)
@@ -687,7 +749,7 @@ with tab_trends:
     )
 
     fig.update_traces(
-        line=dict(width=3, color="#191414"),
+        line=dict(width=3, color="#2D9CDB"),
         mode="lines+markers",
         marker=dict(size=5),
         hovertemplate=f"{period_label}: %{{customdata[0]}}<br>Cumulative Hours: %{{customdata[1]:,.2f}}<extra></extra>"
@@ -760,7 +822,7 @@ with tab_trends:
     )
 
     fig.update_traces(
-        line=dict(width=3, color=SPOTIFY_GREEN),
+        line=dict(width=3, color="#9B51E0"),
         mode="lines+markers",
         marker=dict(size=5),
         hovertemplate=(
@@ -834,17 +896,18 @@ with tab_sessions:
             if duration_sessions.empty:
                 st.info("No multi-track sessions available for duration distribution.")
             else:
+                duration_sessions["duration_hours"] = duration_sessions["duration_minutes"] / 60.0
                 fig = px.histogram(
                     duration_sessions,
-                    x="duration_minutes",
+                    x="duration_hours",
                     nbins=50,
                     title="Multi-track Session Duration Distribution",
-                    labels={"duration_minutes": "Session Duration in Minutes"},
+                    labels={"duration_hours": "Session Span in Hours"},
                 )
 
                 fig.update_traces(
                     hovertemplate=(
-                        "Session Duration: %{x:.1f} minutes<br>"
+                        "Session Span: %{x:.2f} hours<br>"
                         "Number of Sessions: %{y}"
                         "<extra></extra>"
                     )
@@ -852,28 +915,31 @@ with tab_sessions:
 
                 polish_chart(fig)
                 fig.update_layout(
-                    xaxis_title="Session Duration in Minutes",
+                    xaxis_title="Session Span in Hours",
                     yaxis_title="Number of Sessions",
                 )
 
                 st.plotly_chart(fig, use_container_width=True)
 
         with c2:
+            sessions_hours = sessions.copy()
+            sessions_hours["hours"] = sessions_hours["minutes"] / 60.0
+
             fig = px.histogram(
-                sessions,
-                x="minutes",
+                sessions_hours,
+                x="hours",
                 nbins=40,
-                title="Minutes per Session Distribution",
-                labels={"minutes": "Minutes per Session"},
+                title="Hours per Session Distribution",
+                labels={"hours": "Hours per Session"},
             )
 
             fig.update_traces(
-                hovertemplate="Minutes per Session: %{x:.1f}<br>Number of Sessions: %{y}<extra></extra>"
+                hovertemplate="Hours per Session: %{x:.2f}<br>Number of Sessions: %{y}<extra></extra>"
             )
 
             polish_chart(fig)
             fig.update_layout(
-                xaxis_title="Minutes per Session",
+                xaxis_title="Hours per Session",
                 yaxis_title="Number of Sessions",
             )
 
@@ -882,8 +948,7 @@ with tab_sessions:
         st.subheader("Longest sessions")
 
         longest = sessions.sort_values("minutes", ascending=False).head(20).copy()
-        longest["minutes"] = longest["minutes"].round(1)
-        longest["duration_minutes"] = longest["duration_minutes"].round(1)
+        longest["hours"] = (longest["minutes"] / 60.0).round(2)
         longest["session_start_local"] = (
             longest["session_start"]
             .dt.tz_convert(selected_timezone)
@@ -891,11 +956,10 @@ with tab_sessions:
         )
         longest["session_date"] = longest["session_start_local"].dt.date
 
-        longest_display = longest[["session_date", "minutes", "duration_minutes", "plays"]].rename(
+        longest_display = longest[["session_date", "hours", "plays"]].rename(
             columns={
                 "session_date": "Session Date",
-                "minutes": "Minutes",
-                "duration_minutes": "Duration Minutes",
+                "hours": "Hours",
                 "plays": "Track Plays",
             }
         )
@@ -921,32 +985,34 @@ with tab_sessions:
         sessions_plot["session_end_display"] = sessions_plot["session_end_local"].dt.strftime(
             f"%b %d, %Y %I:%M %p {selected_timezone_label}"
         )
+        sessions_plot["hours"] = sessions_plot["minutes"] / 60.0
+        sessions_plot["duration_hours"] = sessions_plot["duration_minutes"] / 60.0
 
         fig = px.scatter(
             sessions_plot,
             x="plays",
-            y="minutes",
-            title="Plays vs. Minutes per Session",
-            labels={"plays": "Plays", "minutes": "Minutes"},
+            y="hours",
+            title="Plays vs. Hours per Session",
+            labels={"plays": "Plays", "hours": "Hours"},
             custom_data=[
                 "session_date_display",
                 "session_start_display",
                 "session_end_display",
-                "duration_minutes",
+                "duration_hours",
                 "plays",
-                "minutes",
+                "hours",
             ],
         )
 
         fig.update_traces(
-            marker=dict(size=9, color=SPOTIFY_GREEN, opacity=0.7, line=dict(width=1, color="white")),
+            marker=dict(size=9, color="#2D9CDB", opacity=0.7, line=dict(width=1, color="white")),
             hovertemplate=(
                 "Date: %{customdata[0]}<br>"
                 "Start: %{customdata[1]}<br>"
                 "End: %{customdata[2]}<br>"
-                "Duration: %{customdata[3]:,.1f} minutes<br>"
+                "Session span: %{customdata[3]:,.2f} hours<br>"
                 "Plays: %{customdata[4]:,}<br>"
-                "Minutes: %{customdata[5]:,.1f}"
+                "Hours: %{customdata[5]:,.2f}"
                 "<extra></extra>"
             )
         )
@@ -1063,7 +1129,7 @@ try:
         selected_timezone_label=selected_timezone_label,
         selected_year=selected_year,
         selected_day=selected_day if "selected_day" in locals() else None,
-        trend_granularity=trend_granularity if "trend_granularity" in locals() else "Day",
+        trend_granularity=trend_granularity if "trend_granularity" in locals() else "Week",
         artist_granularity=artist_granularity if "artist_granularity" in locals() else "Month",
     )
 

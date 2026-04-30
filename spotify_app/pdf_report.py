@@ -17,11 +17,12 @@ from spotify_app.data_transform import (
 SPOTIFY_GREEN = "#1DB954"
 SPOTIFY_LIGHT_GREEN = "#1ED760"
 SPOTIFY_BLACK = "#191414"
-SOFT_BG = "#F6F7F8"
-CARD_BG = "#FFFFFF"
-TEXT_MUTED = "#5F6368"
-GRID = "#E6E8EB"
-AXIS_TEXT = "#343A40"
+SOFT_BG = "#0E1117"
+CARD_BG = "#171B22"
+TEXT_MUTED = "#A7B0BE"
+GRID = "#2A313D"
+AXIS_TEXT = "#E8EDF4"
+TABLE_HEADER = "#2E77D0"
 
 COLORWAY = [
     "#1DB954",
@@ -68,16 +69,17 @@ def _format_number_axes(fig):
 def _polish_export_fig(fig, *, show_legend: Optional[bool] = None):
     """Apply the shared visual language used by all exported Plotly charts."""
     existing_margin = fig.layout.margin.to_plotly_json() if fig.layout.margin else {}
-    margin = {"l": 64, "r": 24, "t": 58, "b": 50}
+    margin = {"l": 64, "r": 24, "t": 78, "b": 50}
     margin.update({key: value for key, value in existing_margin.items() if value is not None})
+    margin["t"] = max(78, margin.get("t", 78))
 
     fig.update_layout(
-        template="plotly_white",
-        paper_bgcolor="white",
-        plot_bgcolor="white",
+        template="plotly_dark",
+        paper_bgcolor=CARD_BG,
+        plot_bgcolor=CARD_BG,
         colorway=COLORWAY,
         font=dict(family="Arial", size=11, color=AXIS_TEXT),
-        title=dict(font=dict(size=16, color=SPOTIFY_BLACK), x=0.02, xanchor="left"),
+        title=dict(font=dict(size=14, color=AXIS_TEXT), x=0.02, xanchor="left"),
         margin=margin,
         legend=dict(
             orientation="h",
@@ -154,14 +156,15 @@ def _add_table(story, rows, col_widths=None, font_size: int = 8):
     table.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(SPOTIFY_GREEN)),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(TABLE_HEADER)),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor(AXIS_TEXT)),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                 ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
                 ("FONTSIZE", (0, 0), (-1, -1), font_size),
                 ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor(GRID)),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F9FAFB")]),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor(CARD_BG), colors.HexColor("#1E2430")]),
                 ("LEFTPADDING", (0, 0), (-1, -1), 6),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 6),
                 ("TOPPADDING", (0, 0), (-1, -1), 4),
@@ -266,9 +269,9 @@ def _page_background(canvas, doc):
     canvas.setFillColor(colors.HexColor(SOFT_BG))
     canvas.rect(0, 0, doc.pagesize[0], doc.pagesize[1], fill=1, stroke=0)
 
-    canvas.setFillColor(colors.HexColor(SPOTIFY_BLACK))
+    canvas.setFillColor(colors.HexColor("#07090D"))
     canvas.rect(0, doc.pagesize[1] - 0.28 * inch, doc.pagesize[0], 0.28 * inch, fill=1, stroke=0)
-    canvas.setFillColor(colors.HexColor(SPOTIFY_GREEN))
+    canvas.setFillColor(colors.HexColor("#2E77D0"))
     canvas.rect(0, doc.pagesize[1] - 0.32 * inch, doc.pagesize[0], 0.04 * inch, fill=1, stroke=0)
 
     canvas.setFont("Helvetica", 7)
@@ -283,7 +286,7 @@ def build_shareable_pdf(
     selected_timezone_label: str = "Selected timezone",
     selected_year: Optional[str] = None,
     selected_day: Optional[str] = None,
-    trend_granularity: str = "Day",
+    trend_granularity: str = "Week",
     artist_granularity: str = "Month",
 ) -> bytes:
     """Create one polished share snapshot PDF from the current filtered dashboard data."""
@@ -337,7 +340,7 @@ def build_shareable_pdf(
             fontName="Helvetica-Bold",
             fontSize=19,
             leading=22,
-            textColor=colors.HexColor(SPOTIFY_BLACK),
+            textColor=colors.HexColor(AXIS_TEXT),
             spaceAfter=2,
         )
     )
@@ -366,7 +369,7 @@ def build_shareable_pdf(
             fontName="Helvetica-Bold",
             fontSize=15,
             leading=18,
-            textColor=colors.HexColor(SPOTIFY_BLACK),
+            textColor=colors.HexColor(AXIS_TEXT),
         )
     )
     styles.add(
@@ -416,7 +419,7 @@ def build_shareable_pdf(
     peak_day = by_dow_for_peak.iloc[0]["day_of_week"] if not by_dow_for_peak.empty else "N/A"
 
     sessions = compute_sessions(df, gap_minutes=SESSION_GAP_MINUTES)
-    longest_session = "N/A" if sessions.empty else f"{sessions['minutes'].max():,.1f} min"
+    longest_session = "N/A" if sessions.empty else f"{sessions['minutes'].max() / 60.0:,.2f} hr"
 
     # Page 1: Overview snapshot
     hero = Table(
@@ -431,8 +434,8 @@ def build_shareable_pdf(
     hero.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(SPOTIFY_BLACK)),
-                ("BOX", (0, 0), (-1, -1), 0, colors.HexColor(SPOTIFY_BLACK)),
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#10151F")),
+                ("BOX", (0, 0), (-1, -1), 0, colors.HexColor("#10151F")),
                 ("TOPPADDING", (0, 0), (-1, -1), 9),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
                 ("LEFTPADDING", (0, 0), (-1, -1), 10),
@@ -442,16 +445,6 @@ def build_shareable_pdf(
     )
     story.append(hero)
     story.append(Spacer(1, 0.18 * inch))
-
-    filters = [
-        ("Timezone", selected_timezone_label),
-        ("Year filter", str(filter_label)),
-        ("Top N selected", str(topn)),
-        ("Chart Top N exported", str(export_topn)),
-        ("Stream filter", f">= {MIN_STREAM_SECONDS} seconds"),
-        ("Session gap", f"> {SESSION_GAP_MINUTES} minutes"),
-    ]
-    _metric_grid(story, filters, styles, columns=3)
 
     metrics = [
         ("Total Hours", f"{total_hours:,.1f}"),
@@ -501,6 +494,22 @@ def build_shareable_pdf(
     _label_bar_values(fig_artists, axis="x", decimals=1)
     fig_artists.update_layout(showlegend=False, margin=dict(l=170, r=20, t=58, b=45))
 
+    top_artists_plays = safe_group_count(df, ["artist"], export_topn, name="plays").copy()
+    fig_artist_plays = px.bar(
+        top_artists_plays.sort_values("plays", ascending=True),
+        x="plays",
+        y="artist",
+        orientation="h",
+        title="Top Artists by Plays",
+        color="artist",
+        color_discrete_sequence=COLORWAY,
+        labels={"artist": "Artist", "plays": "Plays"},
+    )
+    _label_bar_values(fig_artist_plays, axis="x", decimals=0)
+    fig_artist_plays.update_layout(showlegend=False, margin=dict(l=170, r=20, t=58, b=45))
+
+    _add_chart_pair(story, fig_artists, fig_artist_plays, height_inches=3.05)
+
     top_tracks = safe_group_sum(df, ["track", "artist", "album"], "minutes", export_topn).copy()
     top_tracks["hours"] = top_tracks["minutes"] / 60.0
     top_tracks["track_label"] = top_tracks.apply(
@@ -520,7 +529,32 @@ def build_shareable_pdf(
     _label_bar_values(fig_tracks, axis="x", decimals=1)
     fig_tracks.update_layout(showlegend=False, margin=dict(l=205, r=20, t=58, b=45))
 
-    _add_chart_pair(story, fig_artists, fig_tracks, height_inches=3.05)
+    top_tracks_plays = safe_group_count(df, ["track", "artist", "album"], export_topn, name="plays").copy()
+    top_tracks_plays["track_label"] = top_tracks_plays.apply(
+        lambda r: f"{_clean_text(r['track'], 25)} - {_clean_text(r['artist'], 18)}",
+        axis=1,
+    )
+    fig_tracks_plays = px.bar(
+        top_tracks_plays.sort_values("plays", ascending=True),
+        x="plays",
+        y="track_label",
+        orientation="h",
+        title="Top Tracks by Plays",
+        color="artist",
+        color_discrete_sequence=COLORWAY,
+        labels={"plays": "Plays", "track_label": "Track"},
+    )
+    _label_bar_values(fig_tracks_plays, axis="x", decimals=0)
+    fig_tracks_plays.update_layout(showlegend=False, margin=dict(l=205, r=20, t=58, b=45))
+
+    _add_chart_pair(story, fig_tracks, fig_tracks_plays, height_inches=3.05)
+    story.append(PageBreak())
+    _section_header(
+        story,
+        "Album Rankings",
+        "Album listening ranked by total time and play count.",
+        styles,
+    )
 
     top_albums = safe_group_sum(df, ["album", "artist"], "minutes", export_topn).copy()
     top_albums["hours"] = top_albums["minutes"] / 60.0
@@ -541,24 +575,28 @@ def build_shareable_pdf(
     _label_bar_values(fig_albums, axis="x", decimals=1)
     fig_albums.update_layout(showlegend=False, margin=dict(l=205, r=20, t=58, b=45))
 
-    top_artists_plays = safe_group_count(df, ["artist"], export_topn, name="plays").copy()
-    fig_artist_plays = px.bar(
-        top_artists_plays.sort_values("plays", ascending=True),
+    top_albums_plays = safe_group_count(df, ["album", "artist"], export_topn, name="plays").copy()
+    top_albums_plays["album_label"] = top_albums_plays.apply(
+        lambda r: f"{_clean_text(r['album'], 26)} - {_clean_text(r['artist'], 18)}",
+        axis=1,
+    )
+    fig_albums_plays = px.bar(
+        top_albums_plays.sort_values("plays", ascending=True),
         x="plays",
-        y="artist",
+        y="album_label",
         orientation="h",
-        title="Top Artists by Play Count",
+        title="Top Albums by Plays",
         color="artist",
         color_discrete_sequence=COLORWAY,
-        labels={"artist": "Artist", "plays": "Plays"},
+        labels={"album_label": "Album", "plays": "Plays"},
     )
-    _label_bar_values(fig_artist_plays, axis="x", decimals=0)
-    fig_artist_plays.update_layout(showlegend=False, margin=dict(l=170, r=20, t=58, b=45))
+    _label_bar_values(fig_albums_plays, axis="x", decimals=0)
+    fig_albums_plays.update_layout(showlegend=False, margin=dict(l=205, r=20, t=58, b=45))
 
-    _add_chart_pair(story, fig_albums, fig_artist_plays, height_inches=3.05)
+    _add_chart_pair(story, fig_albums, fig_albums_plays, height_inches=3.05)
+    story.append(PageBreak())
 
     # Page 3: Behavior details
-    story.append(PageBreak())
     _section_header(
         story,
         "Repeat Behavior & Peak Days",
@@ -622,12 +660,12 @@ def build_shareable_pdf(
         .copy()
     )
     daily_total["date"] = daily_total["day"].dt.date
-    daily_rows = [["Date", "Total Minutes", "Artists", "Track Plays"]]
+    daily_rows = [["Date", "Total Hours", "Artists", "Track Plays"]]
     for _, row in daily_total.iterrows():
         daily_rows.append(
             [
                 str(row["date"]),
-                f"{row['total_minutes']:,.1f}",
+                f"{row['total_minutes'] / 60.0:,.2f}",
                 f"{int(row['number_of_artists']):,}",
                 f"{int(row['plays']):,}",
             ]
@@ -690,12 +728,13 @@ def build_shareable_pdf(
         nested.setStyle(
             TableStyle(
                 [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(SPOTIFY_GREEN)),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(TABLE_HEADER)),
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor(AXIS_TEXT)),
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                     ("FONTSIZE", (0, 0), (-1, -1), 7.2),
                     ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor(GRID)),
-                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F9FAFB")]),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor(CARD_BG), colors.HexColor("#1E2430")]),
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
                     ("LEFTPADDING", (0, 0), (-1, -1), 4),
                     ("RIGHTPADDING", (0, 0), (-1, -1), 4),
@@ -797,15 +836,16 @@ def build_shareable_pdf(
             .sort_values("minutes", ascending=False)
             .head(12)
         )
+        day_artists["hours"] = day_artists["minutes"] / 60.0
         fig_day_detail = px.bar(
-            day_artists.sort_values("minutes", ascending=True),
-            x="minutes",
+            day_artists.sort_values("hours", ascending=True),
+            x="hours",
             y="artist",
             orientation="h",
             title=f"Top Artists on {detail_date}",
             color="artist",
             color_discrete_sequence=COLORWAY,
-            labels={"artist": "Artist", "minutes": "Minutes"},
+            labels={"artist": "Artist", "hours": "Hours"},
         )
         _label_bar_values(fig_day_detail, axis="x", decimals=1)
         fig_day_detail.update_layout(showlegend=False, margin=dict(l=180, r=20, t=58, b=45))
@@ -830,12 +870,13 @@ def build_shareable_pdf(
         tracks_table.setStyle(
             TableStyle(
                 [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(SPOTIFY_GREEN)),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(TABLE_HEADER)),
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor(AXIS_TEXT)),
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                     ("FONTSIZE", (0, 0), (-1, -1), 7.5),
                     ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor(GRID)),
-                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F9FAFB")]),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor(CARD_BG), colors.HexColor("#1E2430")]),
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ]
             )
@@ -970,66 +1011,70 @@ def build_shareable_pdf(
     else:
         duration_sessions = sessions[sessions["duration_minutes"] > 0].copy()
         if duration_sessions.empty:
-            duration_sessions = sessions.assign(duration_minutes=0)
+            duration_sessions = sessions.assign(duration_hours=0)
             duration_title = "Session Duration Distribution"
         else:
+            duration_sessions["duration_hours"] = duration_sessions["duration_minutes"] / 60.0
             duration_title = "Multi-track Session Duration Distribution"
 
         fig_duration = px.histogram(
             duration_sessions,
-            x="duration_minutes",
+            x="duration_hours",
             nbins=40,
             title=duration_title,
-            labels={"duration_minutes": "Session Duration in Minutes"},
+            labels={"duration_hours": "Session Span in Hours"},
         )
         fig_duration.update_traces(marker_color=SPOTIFY_GREEN)
 
+        sessions_hours = sessions.copy()
+        sessions_hours["hours"] = sessions_hours["minutes"] / 60.0
+
         fig_minutes = px.histogram(
-            sessions,
-            x="minutes",
+            sessions_hours,
+            x="hours",
             nbins=40,
-            title="Minutes per Session Distribution",
-            labels={"minutes": "Minutes per Session"},
+            title="Hours per Session Distribution",
+            labels={"hours": "Hours per Session"},
         )
         fig_minutes.update_traces(marker_color="#2E77D0")
 
         _add_chart_pair(story, fig_duration, fig_minutes, height_inches=2.65)
 
         fig_scatter = px.scatter(
-            sessions,
+            sessions_hours,
             x="plays",
-            y="minutes",
-            title="Plays vs. Minutes per Session",
-            color="minutes",
+            y="hours",
+            title="Plays vs. Hours per Session",
+            color="hours",
             color_continuous_scale="Greens",
-            labels={"plays": "Track Plays", "minutes": "Minutes"},
+            labels={"plays": "Track Plays", "hours": "Hours"},
         )
         fig_scatter.update_layout(coloraxis_showscale=False)
 
         longest = sessions.sort_values("minutes", ascending=False).head(12).copy()
         longest["session_date"] = longest["session_start"].dt.date
-        longest_rows = [["Session Date", "Minutes", "Duration Minutes", "Track Plays"]]
+        longest_rows = [["Session Date", "Hours", "Track Plays"]]
         for _, row in longest.iterrows():
             longest_rows.append(
                 [
                     str(row["session_date"]),
-                    f"{row['minutes']:,.1f}",
-                    f"{row['duration_minutes']:,.1f}",
+                    f"{row['minutes'] / 60.0:,.2f}",
                     f"{int(row['plays']):,}",
                 ]
             )
 
         scatter_img = _fig_to_image(fig_scatter, 5.1, 3.0)
-        longest_table = Table(longest_rows, colWidths=[1.25 * inch, 0.85 * inch, 1.25 * inch, 0.95 * inch])
+        longest_table = Table(longest_rows, colWidths=[1.45 * inch, 1.05 * inch, 1.10 * inch])
         longest_table.setStyle(
             TableStyle(
                 [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(SPOTIFY_GREEN)),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(TABLE_HEADER)),
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor(AXIS_TEXT)),
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                     ("FONTSIZE", (0, 0), (-1, -1), 7.5),
                     ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor(GRID)),
-                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F9FAFB")]),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor(CARD_BG), colors.HexColor("#1E2430")]),
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ]
             )
@@ -1053,12 +1098,17 @@ def build_shareable_pdf(
 
     about_rows = [
         ["Topic", "Details"],
+        ["Timezone", selected_timezone_label],
+        ["Year filter", str(filter_label)],
+        ["Top N selected", str(topn)],
+        ["Top chart items exported", str(export_topn)],
+        ["Stream filter", f">= {MIN_STREAM_SECONDS} seconds"],
+        ["Session gap", f"> {SESSION_GAP_MINUTES} minutes"],
         ["Source data", "Spotify Extended Streaming History export ZIP"],
         ["Fields used", "ts, ms_played, master_metadata_track_name, master_metadata_album_artist_name, master_metadata_album_album_name"],
         ["Renamed fields", "played_at, ms_played, track, artist, album"],
         ["Derived fields", "minutes, date, day, week, month, year, hour, day_of_week, played_at_local"],
-        ["Stream filter", f"Tracks must have valid metadata and at least {MIN_STREAM_SECONDS} seconds played."],
-        ["Timezone", f"Date, day-of-week, hour, and most-listened-day groupings use {selected_timezone_label}."],
+        ["Time grouping", f"Date, day-of-week, hour, and most-listened-day groupings use {selected_timezone_label}."],
         ["Sessions", f"A new session starts after more than {SESSION_GAP_MINUTES} minutes of inactivity."],
         ["Privacy", "The app does not require Spotify login and uses uploaded data only for the active Streamlit session."],
     ]
