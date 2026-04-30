@@ -21,6 +21,7 @@ SOFT_BG = "#F6F7F8"
 CARD_BG = "#FFFFFF"
 TEXT_MUTED = "#5F6368"
 GRID = "#E6E8EB"
+AXIS_TEXT = "#343A40"
 
 COLORWAY = [
     "#1DB954",
@@ -58,29 +59,78 @@ def _chart_topn(topn: int) -> int:
     return max(5, min(int(topn), 20))
 
 
-def _fig_to_image(fig, width_inches: float, height_inches: float):
-    from reportlab.lib.units import inch
-    from reportlab.platypus import Image
+def _format_number_axes(fig):
+    fig.update_xaxes(tickformat=",.0f")
+    fig.update_yaxes(tickformat=",.0f")
+    return fig
+
+
+def _polish_export_fig(fig, *, show_legend: Optional[bool] = None):
+    """Apply the shared visual language used by all exported Plotly charts."""
+    existing_margin = fig.layout.margin.to_plotly_json() if fig.layout.margin else {}
+    margin = {"l": 64, "r": 24, "t": 58, "b": 50}
+    margin.update({key: value for key, value in existing_margin.items() if value is not None})
 
     fig.update_layout(
         template="plotly_white",
         paper_bgcolor="white",
         plot_bgcolor="white",
         colorway=COLORWAY,
-        font=dict(family="Arial", size=11, color=SPOTIFY_BLACK),
+        font=dict(family="Arial", size=11, color=AXIS_TEXT),
         title=dict(font=dict(size=16, color=SPOTIFY_BLACK), x=0.02, xanchor="left"),
-        margin=dict(l=60, r=20, t=58, b=48),
+        margin=margin,
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=-0.28,
+            y=-0.30,
             xanchor="left",
             x=0,
             font=dict(size=9),
+            title_text="",
         ),
+        bargap=0.22,
     )
-    fig.update_xaxes(showgrid=True, gridcolor=GRID, zeroline=False, title_font=dict(size=11))
-    fig.update_yaxes(showgrid=False, zeroline=False, title_font=dict(size=11))
+
+    if show_legend is not None:
+        fig.update_layout(showlegend=show_legend)
+
+    fig.update_xaxes(
+        showgrid=True,
+        gridcolor=GRID,
+        zeroline=False,
+        title_font=dict(size=11, color=AXIS_TEXT),
+        tickfont=dict(size=10, color=AXIS_TEXT),
+        automargin=True,
+    )
+    fig.update_yaxes(
+        showgrid=False,
+        zeroline=False,
+        title_font=dict(size=11, color=AXIS_TEXT),
+        tickfont=dict(size=10, color=AXIS_TEXT),
+        automargin=True,
+    )
+    fig.update_traces(marker_line_width=0, selector=dict(type="bar"))
+    return _format_number_axes(fig)
+
+
+def _label_bar_values(fig, axis: str = "x", decimals: int = 1):
+    value_token = "x" if axis == "x" else "y"
+    format_suffix = ":,.0f" if decimals == 0 else f":,.{decimals}f"
+    fig.update_traces(
+        texttemplate=f"%{{{value_token}{format_suffix}}}",
+        textposition="outside",
+        textfont=dict(size=9, color=AXIS_TEXT),
+        cliponaxis=False,
+        selector=dict(type="bar"),
+    )
+    return fig
+
+
+def _fig_to_image(fig, width_inches: float, height_inches: float):
+    from reportlab.lib.units import inch
+    from reportlab.platypus import Image
+
+    _polish_export_fig(fig)
 
     img_bytes = fig.to_image(
         format="png",
@@ -448,6 +498,7 @@ def build_shareable_pdf(
         color_discrete_sequence=COLORWAY,
         labels={"hours": "Hours", "artist": "Artist"},
     )
+    _label_bar_values(fig_artists, axis="x", decimals=1)
     fig_artists.update_layout(showlegend=False, margin=dict(l=170, r=20, t=58, b=45))
 
     top_tracks = safe_group_sum(df, ["track", "artist", "album"], "minutes", export_topn).copy()
@@ -466,6 +517,7 @@ def build_shareable_pdf(
         color_discrete_sequence=COLORWAY,
         labels={"hours": "Hours", "track_label": "Track"},
     )
+    _label_bar_values(fig_tracks, axis="x", decimals=1)
     fig_tracks.update_layout(showlegend=False, margin=dict(l=205, r=20, t=58, b=45))
 
     _add_chart_pair(story, fig_artists, fig_tracks, height_inches=3.05)
@@ -486,6 +538,7 @@ def build_shareable_pdf(
         color_discrete_sequence=COLORWAY,
         labels={"hours": "Hours", "album_label": "Album"},
     )
+    _label_bar_values(fig_albums, axis="x", decimals=1)
     fig_albums.update_layout(showlegend=False, margin=dict(l=205, r=20, t=58, b=45))
 
     top_artists_plays = safe_group_count(df, ["artist"], export_topn, name="plays").copy()
@@ -499,6 +552,7 @@ def build_shareable_pdf(
         color_discrete_sequence=COLORWAY,
         labels={"artist": "Artist", "plays": "Plays"},
     )
+    _label_bar_values(fig_artist_plays, axis="x", decimals=0)
     fig_artist_plays.update_layout(showlegend=False, margin=dict(l=170, r=20, t=58, b=45))
 
     _add_chart_pair(story, fig_albums, fig_artist_plays, height_inches=3.05)
@@ -551,6 +605,7 @@ def build_shareable_pdf(
         color_discrete_sequence=COLORWAY,
         labels={"hours": "Hours", "label": "Artist and Date"},
     )
+    _label_bar_values(fig_artist_peaks, axis="x", decimals=1)
     fig_artist_peaks.update_layout(showlegend=False, margin=dict(l=225, r=20, t=58, b=45))
 
     _add_chart_pair(story, fig_repeat_dist, fig_artist_peaks, height_inches=2.85)
@@ -676,6 +731,7 @@ def build_shareable_pdf(
         color_discrete_sequence=COLORWAY,
         labels={"day_of_week": "Day", "hours": "Hours"},
     )
+    _label_bar_values(fig_dow, axis="y", decimals=1)
     fig_dow.update_layout(showlegend=False)
 
     by_hour = df.groupby(["hour", "hour_label"], as_index=False)["minutes"].sum().sort_values("hour")
@@ -692,9 +748,39 @@ def build_shareable_pdf(
         color_continuous_scale="Greens",
         labels={"hour_label": "Hour", "hours": "Hours"},
     )
+    _label_bar_values(fig_hour, axis="y", decimals=1)
     fig_hour.update_layout(showlegend=False, coloraxis_showscale=False)
 
     _add_chart_pair(story, fig_dow, fig_hour, height_inches=3.0)
+
+    heatmap_data = (
+        df.groupby(["day_of_week", "hour"], as_index=False)["minutes"].sum()
+        .pivot(index="day_of_week", columns="hour", values="minutes")
+        .reindex(order)
+        .reindex(columns=list(range(24)))
+        .fillna(0)
+    )
+    heatmap_hours = heatmap_data / 60.0
+
+    fig_heatmap = px.imshow(
+        heatmap_hours,
+        aspect="auto",
+        title="Listening Heatmap by Day and Hour",
+        labels=dict(x="Hour of Day", y="Day of Week", color="Hours"),
+        x=hour_order,
+        y=order,
+        color_continuous_scale="Greens",
+    )
+    fig_heatmap.update_layout(
+        margin=dict(l=92, r=46, t=58, b=40),
+        coloraxis_colorbar=dict(title="Hours", tickfont=dict(size=9)),
+        xaxis=dict(side="top", tickangle=0, showgrid=False),
+        yaxis=dict(showgrid=False),
+    )
+    fig_heatmap.update_xaxes(tickfont=dict(size=8))
+    fig_heatmap.update_yaxes(tickfont=dict(size=10))
+
+    _add_single_chart(story, fig_heatmap, height_inches=2.35)
 
     # Detail for selected or busiest day
     if selected_day is not None:
@@ -721,6 +807,7 @@ def build_shareable_pdf(
             color_discrete_sequence=COLORWAY,
             labels={"artist": "Artist", "minutes": "Minutes"},
         )
+        _label_bar_values(fig_day_detail, axis="x", decimals=1)
         fig_day_detail.update_layout(showlegend=False, margin=dict(l=180, r=20, t=58, b=45))
 
         day_tracks = (
@@ -782,6 +869,7 @@ def build_shareable_pdf(
         labels={period_col: period_label, "hours": "Hours"},
     )
     fig_listening.update_traces(line=dict(color=SPOTIFY_GREEN, width=3), mode="lines+markers")
+    fig_listening.update_yaxes(tickformat=",.1f")
 
     cumulative = listening_trend.copy()
     cumulative["cumulative_hours"] = cumulative["hours"].cumsum()
@@ -793,6 +881,7 @@ def build_shareable_pdf(
         labels={period_col: period_label, "cumulative_hours": "Cumulative Hours"},
     )
     fig_cumulative.update_traces(line=dict(color="#2E77D0", width=3), mode="lines+markers")
+    fig_cumulative.update_yaxes(tickformat=",.1f")
 
     _add_chart_pair(story, fig_listening, fig_cumulative, height_inches=2.75)
 
@@ -863,7 +952,9 @@ def build_shareable_pdf(
         color_discrete_sequence=COLORWAY,
         labels={"period": discovery_period_label, "new_artists": "New Artists"},
     )
+    _label_bar_values(fig_discovery, axis="y", decimals=0)
     fig_discovery.update_layout(showlegend=False)
+    _add_single_chart(story, fig_discovery, height_inches=2.2)
 
     # Page 6: Sessions & Behavior
     story.append(PageBreak())

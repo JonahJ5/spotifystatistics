@@ -29,6 +29,50 @@ from spotify_app.pdf_report import build_shareable_pdf
 # -----------------------------
 st.set_page_config(page_title="Spotify Statistics", layout="wide")
 
+SPOTIFY_GREEN = "#1DB954"
+CHART_PALETTE = [
+    SPOTIFY_GREEN,
+    "#191414",
+    "#2D9CDB",
+    "#F2994A",
+    "#9B51E0",
+    "#EB5757",
+    "#27AE60",
+    "#56CCF2",
+    "#BB6BD9",
+    "#F2C94C",
+]
+
+px.defaults.template = "plotly_white"
+px.defaults.color_discrete_sequence = CHART_PALETTE
+px.defaults.color_continuous_scale = "Greens"
+
+
+def polish_chart(fig, height=None, hovermode="closest"):
+    fig.update_layout(
+        height=height,
+        hovermode=hovermode,
+        title=dict(x=0, xanchor="left", font=dict(size=18)),
+        font=dict(size=13),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        hoverlabel=dict(bgcolor="#191414", font_size=12, font_color="white"),
+        margin=dict(l=60, r=24, t=64, b=48),
+        xaxis=dict(showgrid=True, gridcolor="rgba(25,20,20,0.08)", zeroline=False),
+        yaxis=dict(showgrid=False, zeroline=False),
+    )
+    return fig
+
+
+def polish_hbar(fig, n_rows, left_margin=260):
+    polish_chart(fig, height=auto_hbar_height(n_rows))
+    fig.update_layout(
+        showlegend=False,
+        yaxis=dict(automargin=True),
+        margin=dict(l=left_margin, r=24, t=64, b=36),
+    )
+    return fig
+
 st.title("Spotify Statistics")
 st.caption("Created by Jonah Jutzi")
 
@@ -195,12 +239,7 @@ with tab_rank:
             hovertemplate="Artist: %{customdata[0]}<br>Minutes: %{customdata[1]:,.1f}<extra></extra>"
         )
 
-        fig.update_layout(
-            showlegend=False,
-            height=auto_hbar_height(len(plot_df)),
-            yaxis=dict(automargin=True),
-            margin=dict(l=260, r=20, t=60, b=20),
-        )
+        polish_hbar(fig, len(plot_df), left_margin=260)
 
         st.plotly_chart(fig, use_container_width=True)
 
@@ -229,12 +268,7 @@ with tab_rank:
             )
         )
 
-        fig.update_layout(
-            showlegend=False,
-            height=auto_hbar_height(len(plot_df)),
-            yaxis=dict(automargin=True),
-            margin=dict(l=320, r=20, t=60, b=20),
-        )
+        polish_hbar(fig, len(plot_df), left_margin=320)
 
         st.plotly_chart(fig, use_container_width=True)
 
@@ -264,12 +298,7 @@ with tab_rank:
             )
         )
 
-        fig.update_layout(
-            showlegend=False,
-            height=auto_hbar_height(len(plot_df)),
-            yaxis=dict(automargin=True),
-            margin=dict(l=320, r=20, t=60, b=20),
-        )
+        polish_hbar(fig, len(plot_df), left_margin=320)
 
         st.plotly_chart(fig, use_container_width=True)
 
@@ -292,12 +321,7 @@ with tab_rank:
             hovertemplate="Artist: %{customdata[0]}<br>Plays: %{customdata[1]:,}<extra></extra>"
         )
 
-        fig.update_layout(
-            showlegend=False,
-            height=auto_hbar_height(len(plot_df)),
-            yaxis=dict(automargin=True),
-            margin=dict(l=260, r=20, t=60, b=20),
-        )
+        polish_hbar(fig, len(plot_df), left_margin=260)
 
         st.plotly_chart(fig, use_container_width=True)
 
@@ -331,6 +355,7 @@ with tab_rank:
         )
     )
 
+    polish_chart(fig)
     fig.update_layout(xaxis_title="Plays per Track", yaxis_title="Number of Tracks")
 
     st.plotly_chart(fig, use_container_width=True)
@@ -370,12 +395,7 @@ with tab_rank:
         )
     )
 
-    fig.update_layout(
-        showlegend=False,
-        height=auto_hbar_height(len(plot_df)),
-        yaxis=dict(automargin=True),
-        margin=dict(l=340, r=20, t=60, b=20),
-    )
+    polish_hbar(fig, len(plot_df), left_margin=340)
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -408,6 +428,7 @@ with tab_time:
             hovertemplate="Day of the Week: %{customdata[0]}<br>Minutes: %{customdata[1]:,.1f}<extra></extra>"
         )
 
+        polish_chart(fig)
         fig.update_layout(showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
 
@@ -430,8 +451,44 @@ with tab_time:
             hovertemplate="Hour of Day: %{customdata[0]}<br>Minutes: %{customdata[1]:,.1f}<extra></extra>"
         )
 
+        polish_chart(fig)
         fig.update_layout(showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
+
+    heatmap_data = (
+        df.groupby(["day_of_week", "hour"], as_index=False)["minutes"].sum()
+        .pivot(index="day_of_week", columns="hour", values="minutes")
+        .reindex(order)
+        .reindex(columns=list(range(24)))
+        .fillna(0)
+    )
+
+    fig = px.imshow(
+        heatmap_data,
+        aspect="auto",
+        title=f"Listening Heatmap by Day and Hour - {selected_timezone_label}",
+        labels=dict(x="Hour of Day", y="Day of Week", color="Minutes"),
+        x=hour_order,
+        y=order,
+    )
+
+    fig.update_traces(
+        hovertemplate=(
+            "Day: %{y}<br>"
+            "Hour: %{x}<br>"
+            "Minutes: %{z:,.1f}"
+            "<extra></extra>"
+        )
+    )
+
+    polish_chart(fig, height=430)
+    fig.update_layout(
+        coloraxis_colorbar=dict(title="Minutes"),
+        xaxis=dict(side="top", tickangle=0, showgrid=False),
+        yaxis=dict(showgrid=False),
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
 
     st.subheader("Most-listened days")
 
@@ -499,12 +556,7 @@ with tab_time:
             hovertemplate="Artist: %{customdata[0]}<br>Minutes: %{customdata[1]:,.1f}<extra></extra>"
         )
 
-        fig.update_layout(
-            showlegend=False,
-            height=auto_hbar_height(len(top_day_artists)),
-            yaxis=dict(automargin=True),
-            margin=dict(l=260, r=20, t=60, b=20),
-        )
+        polish_hbar(fig, len(top_day_artists), left_margin=260)
 
         st.plotly_chart(fig, use_container_width=True)
 
@@ -577,12 +629,7 @@ with tab_time:
             )
         )
 
-        fig.update_layout(
-            showlegend=False,
-            height=auto_hbar_height(len(plot_df)),
-            yaxis=dict(automargin=True),
-            margin=dict(l=340, r=20, t=60, b=20),
-        )
+        polish_hbar(fig, len(plot_df), left_margin=340)
 
         st.plotly_chart(fig, use_container_width=True)
 
@@ -618,9 +665,13 @@ with tab_trends:
     )
 
     fig.update_traces(
+        line=dict(width=3, color=SPOTIFY_GREEN),
+        mode="lines+markers",
+        marker=dict(size=5),
         hovertemplate=f"{period_label}: %{{customdata[0]}}<br>Hours: %{{customdata[1]:,.2f}}<extra></extra>"
     )
 
+    polish_chart(fig, hovermode="x unified")
     st.plotly_chart(fig, use_container_width=True)
 
     cumulative = listening_trend.copy()
@@ -636,9 +687,13 @@ with tab_trends:
     )
 
     fig.update_traces(
+        line=dict(width=3, color="#191414"),
+        mode="lines+markers",
+        marker=dict(size=5),
         hovertemplate=f"{period_label}: %{{customdata[0]}}<br>Cumulative Hours: %{{customdata[1]:,.2f}}<extra></extra>"
     )
 
+    polish_chart(fig, hovermode="x unified")
     st.plotly_chart(fig, use_container_width=True)
 
     st.subheader("Artist trends")
@@ -685,6 +740,8 @@ with tab_trends:
         )
     )
 
+    polish_chart(fig, hovermode="x unified")
+    fig.update_layout(legend_title_text="Artist")
     st.plotly_chart(fig, use_container_width=True)
 
     diversity = (
@@ -703,6 +760,9 @@ with tab_trends:
     )
 
     fig.update_traces(
+        line=dict(width=3, color=SPOTIFY_GREEN),
+        mode="lines+markers",
+        marker=dict(size=5),
         hovertemplate=(
             f"{artist_period_label}: %{{customdata[0]}}<br>"
             "Unique Artists: %{customdata[1]:,}"
@@ -710,6 +770,7 @@ with tab_trends:
         )
     )
 
+    polish_chart(fig, hovermode="x unified")
     st.plotly_chart(fig, use_container_width=True)
 
     first_artist = (
@@ -749,6 +810,7 @@ with tab_trends:
         )
     )
 
+    polish_chart(fig)
     fig.update_layout(showlegend=False)
 
     st.plotly_chart(fig, use_container_width=True)
@@ -788,6 +850,7 @@ with tab_sessions:
                     )
                 )
 
+                polish_chart(fig)
                 fig.update_layout(
                     xaxis_title="Session Duration in Minutes",
                     yaxis_title="Number of Sessions",
@@ -808,6 +871,7 @@ with tab_sessions:
                 hovertemplate="Minutes per Session: %{x:.1f}<br>Number of Sessions: %{y}<extra></extra>"
             )
 
+            polish_chart(fig)
             fig.update_layout(
                 xaxis_title="Minutes per Session",
                 yaxis_title="Number of Sessions",
@@ -875,6 +939,7 @@ with tab_sessions:
         )
 
         fig.update_traces(
+            marker=dict(size=9, color=SPOTIFY_GREEN, opacity=0.7, line=dict(width=1, color="white")),
             hovertemplate=(
                 "Date: %{customdata[0]}<br>"
                 "Start: %{customdata[1]}<br>"
@@ -886,6 +951,7 @@ with tab_sessions:
             )
         )
 
+        polish_chart(fig)
         st.plotly_chart(fig, use_container_width=True)
 
 
