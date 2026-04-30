@@ -1099,7 +1099,7 @@ def build_shareable_pdf(
     about_rows = [
         ["Topic", "Details"],
         ["Timezone", selected_timezone_label],
-        ["Year filter", str(filter_label)],
+        ["Date filter", str(filter_label)],
         ["Top N selected", str(topn)],
         ["Top chart items exported", str(export_topn)],
         ["Stream filter", f">= {MIN_STREAM_SECONDS} seconds"],

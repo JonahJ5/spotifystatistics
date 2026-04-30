@@ -176,13 +176,45 @@ with st.sidebar:
     year_options = ["All years (Select all)"] + [str(y) for y in years]
     selected_year = st.selectbox("Year", options=year_options, index=0)
 
+    min_date = df_all["date"].min()
+    max_date = df_all["date"].max()
+
+    with st.expander("Advanced date range", expanded=False):
+        use_custom_date_range = st.checkbox(
+            "Use custom date range",
+            value=False,
+            help="When enabled, this overrides the Year filter.",
+        )
+        selected_date_range = st.date_input(
+            "Date range",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date,
+            disabled=not use_custom_date_range,
+        )
+
     show_preview = st.checkbox("Show preview table", value=False)
 
 
-# Apply year filter
+# Apply date filters
 df = df_all.copy()
+selected_filter_label = selected_year
 
-if selected_year != "All years (Select all)":
+if use_custom_date_range:
+    if not isinstance(selected_date_range, (tuple, list)) or len(selected_date_range) != 2:
+        st.warning("Select a start and end date for the custom date range.")
+        st.stop()
+
+    start_date, end_date = selected_date_range
+
+    if start_date > end_date:
+        st.warning("The custom date range start date must be before the end date.")
+        st.stop()
+
+    df = df[(df["date"] >= start_date) & (df["date"] <= end_date)].copy()
+    selected_filter_label = f"{start_date} to {end_date}"
+
+elif selected_year != "All years (Select all)":
     df = df[df["year"] == int(selected_year)].copy()
 
 if df.empty:
@@ -1127,7 +1159,7 @@ try:
         df=df,
         topn=topn,
         selected_timezone_label=selected_timezone_label,
-        selected_year=selected_year,
+        selected_year=selected_filter_label,
         selected_day=selected_day if "selected_day" in locals() else None,
         trend_granularity=trend_granularity if "trend_granularity" in locals() else "Week",
         artist_granularity=artist_granularity if "artist_granularity" in locals() else "Month",
