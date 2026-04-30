@@ -985,18 +985,26 @@ st.subheader("Share / Export")
 
 st.markdown(
     """
-    Download a shareable summary 
-    JSON and CSV exports are also available below.
+    Create a shareable snapshot of your current Spotify Statistics dashboard.
+    The snapshot uses your current filters
     """
 )
 
 try:
-    pdf_bytes = build_shareable_pdf(df, topn=min(topn, 10))
+    pdf_bytes = build_shareable_pdf(
+        df=df,
+        topn=topn,
+        selected_timezone_label=selected_timezone_label,
+        selected_year=selected_year,
+        selected_day=selected_day if "selected_day" in locals() else None,
+        trend_granularity=trend_granularity if "trend_granularity" in locals() else "Day",
+        artist_granularity=artist_granularity if "artist_granularity" in locals() else "Month",
+    )
 
     st.download_button(
-        "Download Shareable Summary (PDF)",
+        "Download Share Snapshot",
         data=pdf_bytes,
-        file_name="spotify_statistics_summary.pdf",
+        file_name="spotify_statistics_snapshot.pdf",
         mime="application/pdf",
     )
 
