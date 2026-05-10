@@ -8,6 +8,10 @@ The app lets users upload the ZIP file from Spotify, then builds interactive lis
 
 https://spotifystatistics.streamlit.app/
 
+## Preview
+
+![Spotify statistics dashboard preview](assets/dashboard-preview.png)
+
 ## How To Use
 
 1. Request your Spotify data from Spotify's privacy page:
