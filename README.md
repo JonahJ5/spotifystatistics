@@ -37,8 +37,6 @@ The app does not require Spotify login and does not connect to your Spotify acco
 - Top artist trends over time
 - Artist diversity and new artist discovery
 - Session distributions and longest sessions
-- Shareable dark-mode PDF snapshot
-- Technical CSV and JSON exports
 
 ## Filters
 
@@ -96,17 +94,6 @@ To keep charts focused on meaningful music plays, the loader requires:
 The Sessions & Behavior tab infers listening sessions from play timestamps. A new session starts when the gap between plays is greater than the configured session gap.
 
 Session charts use hours to avoid confusion between total listening time and elapsed session span.
-
-## Exports
-
-The app includes:
-
-- A shareable dark-mode PDF snapshot of the current filtered dashboard
-- `wrapped_summary.json`
-- CSV exports for top artists, tracks, albums, daily minutes, and monthly minutes
-- A ZIP download containing all technical exports
-
-The PDF snapshot reflects the active timezone, year or custom date range, Top N setting, and dashboard filters.
 
 ## Privacy
 

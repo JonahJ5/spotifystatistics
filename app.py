@@ -20,8 +20,6 @@ from spotify_app.data_transform import (
     safe_group_sum,
 )
 from spotify_app.example_data import make_example_data
-from spotify_app.exports import build_exports, make_zip_bytes
-from spotify_app.pdf_report import build_shareable_pdf
 
 
 # -----------------------------
@@ -1141,74 +1139,3 @@ with tab_info:
     )
 
 
-# -----------------------------
-# Export section
-# -----------------------------
-st.divider()
-st.subheader("Share / Export")
-
-st.markdown(
-    """
-    Create a shareable snapshot of your current Spotify Statistics dashboard.
-    The snapshot uses your current filters
-    """
-)
-
-try:
-    pdf_bytes = build_shareable_pdf(
-        df=df,
-        topn=topn,
-        selected_timezone_label=selected_timezone_label,
-        selected_year=selected_filter_label,
-        selected_day=selected_day if "selected_day" in locals() else None,
-        trend_granularity=trend_granularity if "trend_granularity" in locals() else "Week",
-        artist_granularity=artist_granularity if "artist_granularity" in locals() else "Month",
-    )
-
-    st.download_button(
-        "Download Share Snapshot",
-        data=pdf_bytes,
-        file_name="spotify_statistics_snapshot.pdf",
-        mime="application/pdf",
-    )
-
-except ImportError:
-    st.warning(
-        "PDF export requires the `reportlab` and `kaleido` packages. Add both to requirements.txt to enable this feature."
-    )
-
-except Exception as e:
-    st.warning("PDF export is temporarily unavailable. The interactive dashboard and technical exports still work.")
-    st.caption(f"PDF error: {e}")
-
-with st.expander("Technical exports: JSON and CSV", expanded=False):
-    exports = build_exports(df, topn=topn)
-
-    st.download_button(
-        "Download Wrapped Summary (JSON)",
-        data=exports["wrapped_summary.json"],
-        file_name="wrapped_summary.json",
-        mime="application/json",
-    )
-
-    csv_cols = st.columns(3)
-    csv_files = ["top_artists.csv", "top_tracks.csv", "top_albums.csv"]
-    csv_labels = ["Top Artists (CSV)", "Top Tracks (CSV)", "Top Albums (CSV)"]
-
-    for col, fname, label in zip(csv_cols, csv_files, csv_labels):
-        with col:
-            st.download_button(
-                label,
-                data=exports[fname],
-                file_name=fname,
-                mime="text/csv",
-            )
-
-    zip_bytes = make_zip_bytes(exports)
-
-    st.download_button(
-        "Download ALL technical exports as ZIP",
-        data=zip_bytes,
-        file_name="wrapped_exports.zip",
-        mime="application/zip",
-    )
